@@ -110,6 +110,7 @@ class BattleAPIClient(object):
                     
                     # Отправка
                     self.log("Sending {} to {} (Attempt {}/{})".format(method, url, current_try + 1, retries + 1))
+                    self.log("Data: {}".format(json_data))
                     
                     response = urllib2.urlopen(req, timeout=self.timeout)
                     

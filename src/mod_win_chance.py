@@ -168,6 +168,7 @@ class WinChanceMod(object):
         self.appLoader.onGUISpaceEntered += self.on_gui_space_entered
         self.appLoader.onGUISpaceLeft += self.on_gui_space_left
         g_playerEvents.onBattleResultsReceived += self.on_battle_results_received
+        
 
     # Persistence Logic
     PENDING_BATTLES_FILE = os.path.abspath('./mods/configs/mod_winchance/pending_battles.json')
@@ -255,11 +256,12 @@ class WinChanceMod(object):
             self.request_battle_results(arena_id)
             
         # Schedule next check
-        BigWorld.callback(3.0, self.check_pending_battles_loop)
+        BigWorld.callback(5.0, self.check_pending_battles_loop)
 
     def on_gui_space_entered(self, spaceID):
         log("Space entered: {}".format(spaceID))
         
+       
         # Space ID 15/3 = Hangar 
         # Note: 3 is Lobby (Hangar). 
         if spaceID == 3:
@@ -295,7 +297,7 @@ class WinChanceMod(object):
                 self.overlay = DraggableWinChanceWindow()
                 self.overlay.create()
             # Delay slightly to ensure player is ready
-            BigWorld.callback(30.0, self.calculate_battle_stats)
+            BigWorld.callback(10.0, self.calculate_battle_stats)
 
     def retry_add_pending_battle(self):
         try:
@@ -524,6 +526,113 @@ class WinChanceMod(object):
             import traceback
             err(traceback.format_exc())
             
+    def read_battle_result_from_dat(self, arena_id):
+        """Читает результаты боя из .dat файла и сохраняет в JSON"""
+        try:
+            import os
+            import glob
+            
+            # Путь к папке с результатами боев
+            appdata = os.environ.get('APPDATA', '')
+            if not appdata:
+                err("[WinChance] APPDATA environment variable not found")
+                return None
+            
+            battle_results_dir = os.path.join(appdata, 'Wargaming.net', 'WorldOfTanks', 'battle_results')
+            
+            if not os.path.exists(battle_results_dir):
+                log("[WinChance] Battle results directory not found: {}".format(battle_results_dir))
+                return None
+            
+            log("[WinChance] Scanning battle results directory: {}".format(battle_results_dir))
+            
+            # Ищем все .dat файлы во всех подпапках
+            dat_files = []
+            subdirs_scanned = []
+            
+            for root, dirs, files in os.walk(battle_results_dir):
+                # Логируем найденные подпапки
+                if root != battle_results_dir:
+                    subdir_name = os.path.basename(root)
+                    subdirs_scanned.append(subdir_name)
+                    log("[WinChance] Scanning subfolder: {}".format(subdir_name))
+                
+                # Ищем .dat файлы в текущей папке
+                for file in files:
+                    if file.endswith('.dat'):
+                        full_path = os.path.join(root, file)
+                        dat_files.append(full_path)
+                        log("[WinChance] Found .dat file: {} in {}".format(file, os.path.basename(root)))
+            
+            log("[WinChance] Total subfolders scanned: {}".format(len(subdirs_scanned)))
+            log("[WinChance] Total .dat files found: {}".format(len(dat_files)))
+            
+            if not dat_files:
+                log("[WinChance] No .dat files found in {}".format(battle_results_dir))
+                return None
+            
+            # Пытаемся загрузить результаты используя BattleResultsCache
+            try:
+                from BattleReplay import BattleResultsCache
+                
+                for dat_file in dat_files:
+                    try:
+                        # Читаем файл
+                        with open(dat_file, 'rb') as f:
+                            data = f.read()
+                        
+                        if not data:
+                            continue
+                        
+                        # Используем BattleResultsCache для конвертации
+                        cache = BattleResultsCache()
+                        full_results = cache.convertToFullForm(data)
+                        
+                        if not full_results:
+                            continue
+                        
+                        # Проверяем, соответствует ли arena_id
+                        file_arena_id = full_results.get('arenaUniqueID')
+                        if file_arena_id == arena_id:
+                            log("[WinChance] Found matching battle result in {}".format(os.path.basename(dat_file)))
+                            
+                            # Сохраняем в JSON
+                            self.save_battle_result_json(arena_id, full_results)
+                            return full_results
+                    
+                    except Exception as e:
+                        debug("[WinChance] Error reading {}: {}".format(os.path.basename(dat_file), e))
+                        continue
+                
+                log("[WinChance] No matching .dat file found for arena {}".format(arena_id))
+                return None
+                
+            except ImportError:
+                err("[WinChance] BattleResultsCache import failed")
+                return None
+            
+        except Exception as e:
+            err("[WinChance] Error in read_battle_result_from_dat: {}".format(e))
+            import traceback
+            err(traceback.format_exc())
+            return None
+    
+    def save_battle_result_json(self, arena_id, results):
+        """Сохраняет результаты боя в JSON файл"""
+        try:
+            save_dir = os.path.abspath('./mods/configs/mod_winchance/battle_results_backup/')
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            
+            file_path = os.path.join(save_dir, '{}.json'.format(arena_id))
+            
+            with open(file_path, 'w') as f:
+                json.dump(results, f, indent=2)
+            
+            log("[WinChance] Saved battle results to {}".format(file_path))
+        except Exception as e:
+            err("[WinChance] Error saving battle results JSON: {}".format(e))
+
     def on_battle_results_callback(self, responseCode, results, arena_id):
         """Callback for battle results request"""
         try:
@@ -537,10 +646,16 @@ class WinChanceMod(object):
                 log("[WinChance] Battle results retrieved (Code {}) for {}".format(responseCode, arena_id))
                 self.remove_pending_battle(arena_id)
                 self.on_hangar_battle_results(0, results)
-            else:
+    #        else:
                 # log("[WinChance] No results returned in callback for {} (Code: {})".format(arena_id, responseCode))
                 # Do NOT remove from pending, try again later.
-                pass
+                # Пытаемся прочитать из .dat файлов
+#           log("[WinChance] Trying to read battle results from .dat files for arena {}".format(arena_id))
+#            dat_results = self.read_battle_result_from_dat(arena_id)
+#            if dat_results:
+#                log("[WinChance] Successfully loaded results from .dat file")
+#                self.remove_pending_battle(arena_id)
+#                self.on_hangar_battle_results(0, dat_results)
                  
         except Exception as e:
             err("[WinChance] Error in on_battle_results_callback: {}".format(e))
@@ -670,6 +785,16 @@ class WinChanceMod(object):
             log("[WinChance] Result: {} Map: {} Tank: {} DMG: {} Chance: {:.1f}".format(
                 battle_result, map_name, tank_info['name'], damage_dealt, win_chance))
             
+            # Определяем победу/поражение/ничью
+            if winner_team == 0:
+                # winner_team = 0 означает ничью
+                result_str = 'draw'
+            elif winner_team == player_team:
+                # Наша команда победила
+                result_str = 'win'
+            else:
+                # Вражеская команда победила
+                result_str = 'lose'
             dto = {
                 'ArenaUniqueId': str(arena_id),
                 'BattleTime': battle_time,
@@ -678,6 +803,7 @@ class WinChanceMod(object):
                 'BattleType': bonus_type,
                 'Team': player_team,
                 'WinnerTeam': winner_team,
+                'Result': result_str,
                 'DamageDealt': damage_dealt,
                 'DamageAssisted': damage_assisted,
                 'DamageBlocked': damage_blocked,
@@ -803,7 +929,7 @@ class DraggableWinChanceWindow(object):
         """Сохраняет позицию в конфиг"""
         try:
             import json
-            config_path = './mods/configs/mod_winchance.json'
+            config_path = './mods/configs/mod_winchance/mod_winchance.json'
             config_dir = os.path.dirname(config_path)
             if not os.path.exists(config_dir):
                 os.makedirs(config_dir)

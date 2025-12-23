@@ -11,7 +11,7 @@ import shutil
 # Configuration
 SRC_DIR = "../src"
 OUTPUT_DIR = "../output"
-GAME_MODS_DIR = "d:\\Games\\World_of_Tanks_EU\\mods\\2.1.0.1"
+GAME_MODS_DIR = "d:\\Games\\World_of_Tanks_EU\\mods\\2.1.0.2"
 MOD_NAME = "mod_win_chance.wotmod"
 BASE_INTERNAL_PATH = "res/scripts/client/gui/mods"
 
@@ -74,7 +74,11 @@ def compile_all_py_files():
                     # Check magic number
                     with open(out_path, 'rb') as f:
                         magic = f.read(4)
-                        magic_hex = ''.join(['%02x' % ord(b) for b in magic])
+                        # Python 3 compatibility: bytes elements are already ints
+                        if isinstance(magic[0], int):
+                            magic_hex = ''.join(['%02x' % b for b in magic])
+                        else:
+                            magic_hex = ''.join(['%02x' % ord(b) for b in magic])
                     
                     if magic_hex.startswith('03f3'):
                         print("  -> %s [%d bytes] [Python 2.7 OK]" % (out_path, size))
