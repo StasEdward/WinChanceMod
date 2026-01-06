@@ -9,10 +9,11 @@ import py_compile
 import shutil
 
 # Configuration
+MOD_VERSION = "1.1.0"
 SRC_DIR = "../src"
 OUTPUT_DIR = "../output"
 GAME_MODS_DIR = "d:\\Games\\World_of_Tanks_EU\\mods\\2.1.0.2"
-MOD_NAME = "mod_win_chance.wotmod"
+MOD_NAME = "mod_win_chance_v%s.wotmod" % MOD_VERSION
 BASE_INTERNAL_PATH = "res/scripts/client/gui/mods"
 
 def ensure_dir(path):
@@ -20,6 +21,36 @@ def ensure_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
         print("Created directory: %s" % path)
+
+def update_meta_xml():
+    """Update version in meta.xml"""
+    meta_path = "../meta.xml"
+    if not os.path.exists(meta_path):
+        print("Warning: meta.xml not found at %s" % meta_path)
+        return False
+    
+    try:
+        # Read meta.xml
+        with open(meta_path, 'r') as f:
+            content = f.read()
+        
+        # Replace version tag
+        import re
+        new_content = re.sub(
+            r'<version>.*?</version>',
+            '<version>%s</version>' % MOD_VERSION,
+            content
+        )
+        
+        # Write back
+        with open(meta_path, 'w') as f:
+            f.write(new_content)
+        
+        print("Updated meta.xml version to %s" % MOD_VERSION)
+        return True
+    except Exception as e:
+        print("Error updating meta.xml: %s" % str(e))
+        return False
 
 def compile_all_py_files():
     """Compile all .py files from src to output directory"""
@@ -122,9 +153,11 @@ def build_wotmod(compiled_files):
     mod_path = os.path.join(OUTPUT_DIR, MOD_NAME)
     
     print("\nCreating %s..." % mod_path)
+    print("Version: %s" % MOD_VERSION)
     print("Base path in archive: %s\n" % BASE_INTERNAL_PATH)
     
     with zipfile.ZipFile(mod_path, 'w', zipfile.ZIP_STORED) as zipf:
+        # Add compiled .pyc files
         for out_path, rel_dir, filename in compiled_files:
             # Build internal path for .wotmod
             if rel_dir:
@@ -134,6 +167,14 @@ def build_wotmod(compiled_files):
             
             zipf.write(out_path, internal_path)
             print("  Added: %s" % internal_path)
+        
+        # Add meta.xml to root of archive
+        meta_path = "../meta.xml"
+        if os.path.exists(meta_path):
+            zipf.write(meta_path, "meta.xml")
+            print("  Added: meta.xml")
+        else:
+            print("  Warning: meta.xml not found, skipping")
     
     print("\nCreated: %s" % mod_path)
     
@@ -177,12 +218,13 @@ def build_wotmod(compiled_files):
 
 if __name__ == "__main__":
     try:
-        print("WoT Mod Builder")
+        print("WoT Mod Builder v{}".format(MOD_VERSION))
         print("Source: %s" % os.path.abspath(SRC_DIR))
         print("Output: %s" % os.path.abspath(OUTPUT_DIR))
         print("")
-        
-        # Step 1: Compile all .py to .pyc
+                # Step 0: Update meta.xml version
+        update_meta_xml()
+                # Step 1: Compile all .py to .pyc
         compiled_files = compile_all_py_files()
         
         if compiled_files:

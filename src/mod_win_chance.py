@@ -19,6 +19,7 @@ from helpers import i18n
 
 # Constants
 MOD_NAME = "WinChanceMod"
+MOD_VERSION = "1.1.0"
 APPLICATION_ID = "d8e40cfdafb13e426126fd330b61e104"  # User must replace this!
 
 # API Configuration
@@ -163,7 +164,7 @@ class WinChanceMod(object):
         if self.started: 
             return
         self.started = True
-        log("Started")
+        log("Started v{}".format(MOD_VERSION))
         
         self.appLoader.onGUISpaceEntered += self.on_gui_space_entered
         self.appLoader.onGUISpaceLeft += self.on_gui_space_left
