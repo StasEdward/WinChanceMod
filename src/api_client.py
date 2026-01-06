@@ -81,6 +81,32 @@ class BattleAPIClient(object):
             self.err("Failed to send battle result: {}".format(e))
             return False
     
+    def send_raw_battle_result(self, battle_id, account_id, battle_time, raw_json):
+        """
+        Отправка сырых результатов боя на API
+        
+        Args:
+            battle_id (int): ID боя (arenaUniqueID)
+            account_id (int): ID аккаунта игрока
+            battle_time (str): Время боя в формате ISO 8601
+            raw_json (str): Сырой JSON с результатами боя
+        
+        Returns:
+            bool: True если отправка запущена успешно
+        """
+        try:
+            api_data = {
+                'battleId': battle_id,
+                'accountId': account_id,
+                'battleTime': battle_time,
+                'rawJson': raw_json
+            }
+            self._send_async('POST', '/api/BattlesRaw', api_data)
+            return True
+        except Exception as e:
+            self.err("Failed to send raw battle result: {}".format(e))
+            return False
+    
     def _send_async(self, method, endpoint, data, retries=3, delay=5):
         """
         Асинхронная отправка данных на сервер
@@ -93,63 +119,71 @@ class BattleAPIClient(object):
             delay (int): Задержка между попытками (сек)
         """
         def _worker():
-            # Подготовка данных (делаем один раз)
-            url = self.api_url + endpoint 
-            json_data = json.dumps(data)
-            
-            current_try = 0
-            while current_try <= retries:
-                try:
-                  
-                    # Создание запроса (каждый раз новый, на случай если хедеры/токен обновятся)
-                    req = urllib2.Request(url, json_data)
-                    req.add_header('Content-Type', 'application/json')
-                    
-                    if self.api_token:
-                        req.add_header('Authorization', 'Bearer {}'.format(self.api_token))
-                    
-                    # Отправка
-                    self.log("Sending {} to {} (Attempt {}/{})".format(method, url, current_try + 1, retries + 1))
-                    self.log("Data: {}".format(json_data))
-                    
-                    response = urllib2.urlopen(req, timeout=self.timeout)
-                    
-                    # Обработка ответа
-                    response_data = json.load(response)
-                    #self.log("Response: {}".format(response_data.get('status', 'unknown')))
-                    self.log("Response: {}".format(response_data.get('message', 'unknown')))
-                    
-                    # Если успешно - выходим
-                    return
-                    
-                except urllib2.HTTPError as e:
-                    self.err("HTTP Error {}: {}".format(e.code, e.reason))
-                    try:
-                        error_data = json.load(e)
-                        self.err("Error details: {}".format(error_data))
-                    except:
-                        pass
-                    
-                    # Если ошибка клиента (4xx), не ретраим (кроме таймаута мб, но пока так)
-                    if 400 <= e.code < 500:
-                        self.err("Client error (4xx), aborting retries.")
-                        break
-
-                except urllib2.URLError as e:
-                    self.err("URL Error: {}".format(e.reason))
-                    
-                except Exception as e:
-                    self.err("Send error: {}".format(e))
-                    import traceback
-                    self.err(traceback.format_exc())
+            try:
+                # Подготовка данных (делаем один раз)
+                url = self.api_url + endpoint 
+                self.log("Preparing JSON data for {}...".format(endpoint))
+                # ensure_ascii=True - безопасная сериализация, экранирует не-ASCII символы
+                json_data = json.dumps(data, ensure_ascii=True)
+                self.log("JSON prepared, size: {} bytes".format(len(json_data)))
                 
-                # Логика ретрая
-                current_try += 1
-                if current_try <= retries:
-                    self.log("Retrying check in {}s...".format(delay))
-                    time.sleep(delay)
-            
-            self.err("Failed to send data after {} attempts".format(retries + 1))
+                current_try = 0
+                while current_try <= retries:
+                    try:
+                      
+                        # Создание запроса (каждый раз новый, на случай если хедеры/токен обновятся)
+                        req = urllib2.Request(url, json_data)
+                        req.add_header('Content-Type', 'application/json')
+                        
+                        if self.api_token:
+                            req.add_header('Authorization', 'Bearer {}'.format(self.api_token))
+                        
+                        # Отправка
+                        self.log("Sending {} to {} (Attempt {}/{})".format(method, url, current_try + 1, retries + 1))
+                        self.log("Data size: {} bytes".format(len(json_data)))
+                        
+                        response = urllib2.urlopen(req, timeout=self.timeout)
+                        
+                        # Обработка ответа
+                        response_data = json.load(response)
+                        self.log("Response: {}".format(response_data.get('message', 'unknown')))
+                        
+                        # Если успешно - выходим
+                        return
+                        
+                    except urllib2.HTTPError as e:
+                        self.err("HTTP Error {}: {}".format(e.code, e.reason))
+                        try:
+                            error_data = json.load(e)
+                            self.err("Error details: {}".format(error_data))
+                        except:
+                            pass
+                        
+                        # Если ошибка клиента (4xx), не ретраим (кроме таймаута мб, но пока так)
+                        if 400 <= e.code < 500:
+                            self.err("Client error (4xx), aborting retries.")
+                            break
+
+                    except urllib2.URLError as e:
+                        self.err("URL Error: {}".format(e.reason))
+                        
+                    except Exception as e:
+                        self.err("Send error: {}".format(e))
+                        import traceback
+                        self.err(traceback.format_exc())
+                    
+                    # Логика ретрая
+                    current_try += 1
+                    if current_try <= retries:
+                        self.log("Retrying check in {}s...".format(delay))
+                        time.sleep(delay)
+                
+                self.err("Failed to send data after {} attempts".format(retries + 1))
+                
+            except Exception as e:
+                self.err("Critical error in _worker: {}".format(e))
+                import traceback
+                self.err(traceback.format_exc())
         
         # Запускаем в отдельном потоке
         t = threading.Thread(target=_worker)
@@ -256,15 +290,17 @@ class BattleAPIClient(object):
             if token:
                 self.log("Registration successful! Token received.")
                 
+                # Обновляем локальные переменные
+                self.api_token = token
+                self.api_account_id = player_info['account_id']
+                self.api_nickname = player_info['nickname']
+                
                 # Обновляем конфиг через ссылку
                 if self.api_config:
                     self.api_config['token'] = token
                     self.api_config['account_id'] = player_info['account_id']
                     self.api_config['nickname'] = player_info['nickname']
                     self.api_config['region'] = player_info['region']
-                    
-                    # Обновляем локальный токен
-                    self.api_token = token
                     
                     # Сохраняем конфиг
                     self.save_api_config()
@@ -324,8 +360,11 @@ class BattleAPIClient(object):
             # Проверяем наличие токена
             if self.api_config.get('token'):
                 self.log("Token found in config")
-                # Обновляем локальный токен
+                # Обновляем локальные переменные из конфига
                 self.api_token = self.api_config.get('token')
+                self.api_account_id = self.api_config.get('account_id')
+                self.api_nickname = self.api_config.get('nickname')
+                self.log("Loaded account_id from config: {}".format(self.api_account_id))
                 return True
             
             self.log("No token found, attempting automatic registration...")

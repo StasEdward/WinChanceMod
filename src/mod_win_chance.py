@@ -5,12 +5,10 @@ import threading
 import urllib
 import urllib2
 import time
+import datetime
 from helpers import dependency
 from skeletons.gui.app_loader import IAppLoader
 from PlayerEvents import g_playerEvents
-import BigWorld
-import time
-import datetime
 from items import vehicles as vehiclesWG
 import ArenaType
 from constants import ARENA_BONUS_TYPE
@@ -158,6 +156,8 @@ class WinChanceMod(object):
         self.enemy_wgr = 0.0
         self.player_vehicle_info = None
         self.api_initialized = False  # Флаг инициализации API
+        self.current_space_id = 0  # Текущий Space ID (3=ангар, 4=загрузка, 5=бой)
+        self.pending_loop_active = False  # Флаг активности цикла проверки pending боёв
         
     def start(self):
         if self.started: 
@@ -247,27 +247,39 @@ class WinChanceMod(object):
             log("[WinChance] Removed pending battle ID: {}".format(arena_id))
 
     def check_pending_battles_loop(self):
-        battles = self.load_pending_battles()
-        if not battles:
+        # Не запрашиваем результаты если игрок не в ангаре (Space 3)
+        # Space 1 = загрузка, 4 = загрузка боя, 5 = бой
+        if self.current_space_id != 3:
+            log("[WinChance] Skipping pending check - not in hangar (space={})".format(self.current_space_id))
+            self.pending_loop_active = False
             return
         
+        battles = self.load_pending_battles()
+        if not battles:
+            self.pending_loop_active = False
+            return
+        
+        self.pending_loop_active = True
         log("[WinChance] Polling {} pending battles...".format(len(battles)))
         for arena_id in battles:
             self.request_battle_results(arena_id)
             
-        # Schedule next check
-        BigWorld.callback(5.0, self.check_pending_battles_loop)
+        # Schedule next check только если всё ещё в ангаре
+        if self.current_space_id == 3:
+            BigWorld.callback(5.0, self.check_pending_battles_loop)
+        else:
+            self.pending_loop_active = False
 
     def on_gui_space_entered(self, spaceID):
         log("Space entered: {}".format(spaceID))
+        self.current_space_id = spaceID  # Сохраняем текущий Space ID
         
-       
         # Space ID 15/3 = Hangar 
         # Note: 3 is Lobby (Hangar). 
         if spaceID == 3:
-            # Check pending battles
-            # Check pending battles
-            self.check_pending_battles_loop()
+            # Check pending battles (только если цикл ещё не активен)
+            if not self.pending_loop_active:
+                self.check_pending_battles_loop()
 
             # Initialize API
             if not self.api_initialized and self.api_client:
@@ -297,7 +309,7 @@ class WinChanceMod(object):
                 self.overlay = DraggableWinChanceWindow()
                 self.overlay.create()
             # Delay slightly to ensure player is ready
-            BigWorld.callback(10.0, self.calculate_battle_stats)
+            BigWorld.callback(15.0, self.calculate_battle_stats)
 
     def retry_add_pending_battle(self):
         try:
@@ -355,6 +367,81 @@ class WinChanceMod(object):
         log("Team IDs: {}, Enemy IDs: {}".format(len(team_ids), len(enemy_ids)))
         all_ids = team_ids + enemy_ids
         
+        # =======================================================================
+        # ВАЖНО: Захватываем ВСЕ данные ДО асинхронного вызова!
+        # К моменту callback'а игрок может уже быть в другом бою!
+        # =======================================================================
+        current_arena_id = None
+        captured_vehicle_info = None
+        captured_map_name = 'Unknown'
+        
+        try:
+            if player and hasattr(player, 'arenaUniqueID'):
+                current_arena_id = player.arenaUniqueID
+                log("[WinChance] Captured arena_id: {}".format(current_arena_id))
+        except Exception as e:
+            err("[WinChance] Failed to capture arena_id: {}".format(e))
+        
+        # Захватываем информацию о танке СЕЙЧАС, пока player валиден
+        try:
+            if player and hasattr(player, 'vehicleTypeDescriptor'):
+                veh_descr = player.vehicleTypeDescriptor
+                vehicle_type = getattr(veh_descr, 'type', None)
+                vehicle_id = getattr(vehicle_type, 'compactDescr', 0) if vehicle_type else 0
+                # Используем техническое имя (name) вместо локализованного (userString)
+                # name имеет формат "nation:tank_code", например "france:F97_ELC_EVEN_90"
+                vehicle_name = getattr(vehicle_type, 'name', 'Unknown') if vehicle_type else 'Unknown'
+                vehicle_tags = getattr(vehicle_type, 'tags', frozenset()) if vehicle_type else frozenset()
+                
+                vehicle_type_class = 'unknown'
+                if vehicle_tags:
+                    tags_list = list(vehicle_tags)
+                    for tag in tags_list:
+                        if 'Tank' in tag or 'SPG' in tag:
+                            vehicle_type_class = tag
+                            break
+                    if vehicle_type_class == 'unknown' and tags_list:
+                        vehicle_type_class = tags_list[0]
+                
+                vehicle_name_parts = getattr(vehicle_type, 'name', '') if vehicle_type else ''
+                vehicle_nation = vehicle_name_parts.split(':')[0] if vehicle_name_parts and ':' in vehicle_name_parts else 'unknown'
+                
+                captured_vehicle_info = {
+                    'id': vehicle_id,
+                    'name': vehicle_name,
+                    'tier': veh_descr.level if hasattr(veh_descr, 'level') else 0,
+                    'type': vehicle_type_class,
+                    'nation': vehicle_nation
+                }
+                log("[WinChance] Captured vehicle info: {} (Tier {})".format(vehicle_name, captured_vehicle_info['tier']))
+        except Exception as e:
+            err("[WinChance] Failed to capture vehicle info: {}".format(e))
+            captured_vehicle_info = {'id': 0, 'name': 'Unknown', 'tier': 0, 'type': 'unknown', 'nation': 'unknown'}
+        
+        # Захватываем название карты СЕЙЧАС
+        try:
+            if arena and hasattr(arena, 'arenaType') and hasattr(arena.arenaType, 'geometryName'):
+                geometry_name = arena.arenaType.geometryName
+                captured_map_name = i18n.makeString('#arenas:%s/name' % geometry_name)
+                if not captured_map_name or captured_map_name.startswith('#arenas:'):
+                    captured_map_name = geometry_name
+                log("[WinChance] Captured map name: {}".format(captured_map_name))
+        except Exception as e:
+            err("[WinChance] Failed to capture map name: {}".format(e))
+        
+        # Сохраняем захваченные данные в контекст СРАЗУ (до async операции)
+        if current_arena_id:
+            initial_context = {
+                'TankId': captured_vehicle_info['id'] if captured_vehicle_info else 0,
+                'TankName': captured_vehicle_info['name'] if captured_vehicle_info else 'Unknown',
+                'TankTier': captured_vehicle_info['tier'] if captured_vehicle_info else 0,
+                'TankType': captured_vehicle_info['type'] if captured_vehicle_info else 'unknown',
+                'TankNation': captured_vehicle_info['nation'] if captured_vehicle_info else 'unknown',
+                'MapName': captured_map_name
+            }
+            self.save_battle_context(current_arena_id, initial_context)
+            log("[WinChance] Saved initial context (tank+map) for arena {}".format(current_arena_id))
+        
         def on_stats_received(data):
             log("Stats received, data len: {}".format(len(data)))
             team_ratings = []
@@ -399,89 +486,13 @@ class WinChanceMod(object):
                 'AllyWgr': avg_team_wgr,
                 'EnemyWgr': avg_enemy_wgr
             }
-            # We need arena ID here. We can get it from player.arena if still valid
-            try:
-                p = BigWorld.player()
-                if p and hasattr(p, 'arenaUniqueID'):
-                    self.save_battle_context(p.arenaUniqueID, context_update)
-            except:
-                pass
+            # Используем захваченный arena_id из closure (не от player, т.к. он может быть уже недоступен)
+            if current_arena_id:
+                self.save_battle_context(current_arena_id, context_update)
+                log("[WinChance] Saved WinChance/WGR context for arena {}".format(current_arena_id))
+            else:
+                err("[WinChance] CRITICAL: Cannot save WinChance - no arena_id available!")
             # ------------------------------------------------------
-            
-            # Сохраняем информацию о танке игрока для отправки в результатах
-            try:
-                if player and hasattr(player, 'vehicleTypeDescriptor'):
-                    veh_descr = player.vehicleTypeDescriptor
-                    vehicle_type = getattr(veh_descr, 'type', None)
-                    # Extract vehicle information safely
-                    vehicle_id = getattr(vehicle_type, 'compactDescr', 0) if vehicle_type else 0
-                    vehicle_name = getattr(vehicle_type, 'userString', 'Unknown') if vehicle_type else 'Unknown'
-                    # tags is a frozenset, need to convert to list to access elements
-                    vehicle_tags = getattr(vehicle_type, 'tags', frozenset()) if vehicle_type else frozenset()
-                    if vehicle_tags:
-                        # Convert frozenset to list and get first tag
-                        tags_list = list(vehicle_tags)
-                        # Look for vehicle class tag (heavyTank, mediumTank, etc.)
-                        vehicle_type_class = 'unknown'
-                        for tag in tags_list:
-                            if 'Tank' in tag or 'SPG' in tag:
-                                vehicle_type_class = tag
-                                break
-                        if vehicle_type_class == 'unknown' and tags_list:
-                            vehicle_type_class = tags_list[0]
-                    else:
-                        vehicle_type_class = 'unknown'
-                    vehicle_name_parts = getattr(vehicle_type, 'name', '') if vehicle_type else ''
-                    vehicle_nation = vehicle_name_parts.split(':')[0] if vehicle_name_parts and ':' in vehicle_name_parts else 'unknown'
-  
-                    if veh_descr:
-                        self.player_vehicle_info = {
-                            'id': vehicle_id,
-                            'name': vehicle_name,
-                            'tier': veh_descr.level if hasattr(veh_descr, 'level') else 0,
-                            'type': vehicle_type_class,
-                            'nation': vehicle_nation
-                        }
-                        
-                        # --- PERSISTENCE: Update context with Tank Info ---
-                        # Also save Map Name here as we have arena
-                        map_name = 'Unknown'
-                        try:
-                           if hasattr(player.arena.arenaType, 'geometryName'):
-                               # Try to localize
-                               geometry_name = player.arena.arenaType.geometryName
-                               # Try standard arena name localization
-                               map_name = i18n.makeString('#arenas:%s/name' % geometry_name)
-                               if not map_name or map_name.startswith('#arenas:'):
-                                    # Fallback to userString if available (sometimes different)
-                                    pass
-                        except: pass
-
-                        tank_context = {
-                            'TankId': vehicle_id,
-                            'TankName': vehicle_name,
-                            'TankTier': self.player_vehicle_info['tier'],
-                            'TankType': vehicle_type_class,
-                            'TankNation': vehicle_nation,
-                            'MapName': map_name
-                        }
-                        self.save_battle_context(player.arenaUniqueID, tank_context)
-                        # --------------------------------------------------
-
-                        log("Vehicle info saved: {} (Tier {})".format(
-                            self.player_vehicle_info['name'], 
-                            self.player_vehicle_info['tier'],
-                            self.player_vehicle_info['nation']
-                        ))
-            except Exception as e:
-                err("Error getting vehicle info: {}".format(e))
-                self.player_vehicle_info = {
-                    'id': 0,
-                    'name': 'Unknown',
-                    'tier': 0,
-                    'type': 'unknown',
-                    'nation': 'unknown'
-                }
             
             log("Calculated Chance: {:.1f}%".format(chance))
             log("Avg Team WGR: {:.0f}".format(avg_team_wgr))
@@ -506,23 +517,48 @@ class WinChanceMod(object):
     def request_battle_results(self, arena_id):
         """Request battle results from cache/server"""
         log("[WinChance] Requesting battle results for arena {}".format(arena_id))
+        
+        # Валидация arena_id - должен быть разумным числом
+        try:
+            arena_id_int = int(arena_id)
+            # Типичные arena_id имеют длину 16-19 цифр
+            if arena_id_int <= 0 or arena_id_int > 10**20:
+                err("[WinChance] Invalid arena_id: {} - removing from pending".format(arena_id))
+                self.remove_pending_battle(arena_id)
+                self.delete_battle_context(arena_id)
+                return
+        except (ValueError, TypeError):
+            err("[WinChance] Invalid arena_id format: {} - removing from pending".format(arena_id))
+            self.remove_pending_battle(arena_id)
+            return
+        
+        # Не запрашиваем если не в ангаре
+        if self.current_space_id != 3:
+            log("[WinChance] Skipping request - not in hangar (space={})".format(self.current_space_id))
+            return
+        
         try:
             # We need to access the account repository
-            # Account is imported at top level (from Account import g_accountRepository usually available or just Account)
-            # Check imports at top of file
             import Account 
             if Account.g_accountRepository:
-                 # Check if we can get it
                  if Account.g_accountRepository.battleResultsCache:
-                     # get(arenaUniqueID, callback)
-                     # We wrap the callback to pass the ID so we can remove it on success
-                     Account.g_accountRepository.battleResultsCache.get(arena_id, lambda code, res: self.on_battle_results_callback(code, res, arena_id))
+                     # Оборачиваем в try-except на случай ошибок XVM и др. модов
+                     try:
+                         Account.g_accountRepository.battleResultsCache.get(
+                             arena_id, 
+                             lambda code, res: self.on_battle_results_callback(code, res, arena_id)
+                         )
+                     except Exception as e:
+                         # НЕ удаляем данные при временных ошибках!
+                         # Это может быть из-за загрузки боя или других временных проблем
+                         err("[WinChance] BattleResultsCache.get failed: {} - will retry later".format(e))
+                         # НЕ вызываем remove_pending_battle и delete_battle_context!
                  else:
-                     err("[WinChance] BattleResultsCache is None")
+                     log("[WinChance] BattleResultsCache is None - will retry later")
             else:
-                err("[WinChance] AccountRepository is None")
+                log("[WinChance] AccountRepository is None - will retry later")
         except Exception as e:
-            err("[WinChance] Error requesting battle results: {}".format(e))
+            err("[WinChance] Error requesting battle results: {} - will retry later".format(e))
             import traceback
             err(traceback.format_exc())
             
@@ -633,41 +669,149 @@ class WinChanceMod(object):
         except Exception as e:
             err("[WinChance] Error saving battle results JSON: {}".format(e))
 
+    def save_raw_battle_results(self, arena_id, results):
+        """Сохраняет сырые результаты боя из callback в JSON для анализа"""
+        try:
+            save_dir = os.path.abspath('./mods/configs/mod_winchance/raw_battle_results/')
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            
+            file_path = os.path.join(save_dir, '{}.json'.format(arena_id))
+            
+            # Конвертируем данные в JSON-совместимый формат
+            # (некоторые значения могут быть не сериализуемы)
+            def make_serializable(obj, is_key=False):
+                if isinstance(obj, dict):
+                    return {make_serializable(k, is_key=True): make_serializable(v) for k, v in obj.items()}
+                elif is_key:
+                    # Ключи словаря должны быть строками
+                    if isinstance(obj, (list, tuple)):
+                        return str(obj)
+                    return str(obj)
+                elif isinstance(obj, (list, tuple)):
+                    return [make_serializable(item) for item in obj]
+                elif isinstance(obj, (int, float, bool, type(None))):
+                    return obj
+                elif isinstance(obj, bytes):
+                    # Python 2: str это bytes
+                    try:
+                        return obj.decode('utf-8')
+                    except UnicodeDecodeError:
+                        try:
+                            return obj.decode('cp1251')
+                        except UnicodeDecodeError:
+                            return obj.decode('latin-1')
+                elif isinstance(obj, (frozenset, set)):
+                    return [make_serializable(item) for item in obj]
+                else:
+                    try:
+                        return str(obj).decode('utf-8')
+                    except:
+                        return repr(obj)
+            
+            serializable_results = make_serializable(results)
+            
+            with open(file_path, 'w') as f:
+                json.dump(serializable_results, f, indent=2, ensure_ascii=False)
+            
+            log("[WinChance] Saved raw battle results to {}".format(file_path))
+            
+            # Отправляем сырые данные на API
+            if self.api_client:
+                try:
+                    # Сериализуем в JSON строку для отправки
+                    raw_json = json.dumps(serializable_results, ensure_ascii=True)
+                    
+                    # Получаем account_id из результатов боя (несколько источников)
+                    account_id = 0
+                    
+                    # 1. Пробуем из personal -> avatar -> accountDBID
+                    personal = results.get('personal', {})
+                    if personal:
+                        avatar_data = personal.get('avatar', {})
+                        if avatar_data and 'accountDBID' in avatar_data:
+                            account_id = avatar_data.get('accountDBID', 0)
+                            log("[WinChance] Got account_id from personal.avatar: {}".format(account_id))
+                        
+                        # 2. Пробуем из первого элемента personal (vehicle_cd -> data -> avatar)
+                        if not account_id:
+                            for key, data in personal.items():
+                                if isinstance(data, dict) and 'avatar' in data:
+                                    account_id = data['avatar'].get('accountDBID', 0)
+                                    if account_id:
+                                        log("[WinChance] Got account_id from personal[{}].avatar: {}".format(key, account_id))
+                                        break
+                    
+                    # 3. Fallback - из BigWorld.player()
+                    if not account_id:
+                        player_info = self.api_client.get_player_info()
+                        if player_info:
+                            account_id = player_info.get('account_id', 0)
+                            log("[WinChance] Got account_id from BigWorld.player: {}".format(account_id))
+                    
+                    # 4. Fallback - из сохранённого api_account_id в клиенте
+                    if not account_id and self.api_client.api_account_id:
+                        account_id = self.api_client.api_account_id
+                        log("[WinChance] Got account_id from api_client.api_account_id: {}".format(account_id))
+                    
+                    if not account_id:
+                        err("[WinChance] WARNING: Could not get account_id from any source!")
+                    
+                    # Время боя из arenaCreateTime + duration
+                    common = results.get('common', {})
+                    arena_create_time = common.get('arenaCreateTime', 0)
+                    duration = common.get('duration', 0)
+                    
+                    if arena_create_time > 0:
+                        end_ts = arena_create_time + duration
+                        battle_time = datetime.datetime.fromtimestamp(end_ts).strftime('%Y-%m-%dT%H:%M:%S')
+                    else:
+                        battle_time = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+                    
+                    self.api_client.send_raw_battle_result(
+                        battle_id=int(arena_id) if arena_id else 0,
+                        account_id=account_id,
+                        battle_time=battle_time,
+                        raw_json=raw_json
+                    )
+                    log("[WinChance] Raw battle results sent to API")
+                except Exception as e:
+                    err("[WinChance] Error sending raw results to API: {}".format(e))
+                    
+        except Exception as e:
+            err("[WinChance] Error saving raw battle results: {}".format(e))
+            import traceback
+            err(traceback.format_exc())
+
     def on_battle_results_callback(self, responseCode, results, arena_id):
-        """Callback for battle results request"""
+        """Callback for battle results request - обрабатывает результаты независимо от текущего Space"""
         try:
             # Check if results are valid
             if results and (responseCode == 0 or responseCode == 1): # Accept success codes
-                log("[WinChance] Battle results retrieved via callback for {}".format(arena_id))
+                log("[WinChance] Battle results retrieved via callback for {} (space={})".format(arena_id, self.current_space_id))
                 self.remove_pending_battle(arena_id)
                 self.on_hangar_battle_results(0, results)
             elif results:
                 # Even if code is weird, if we have results, take them.
-                log("[WinChance] Battle results retrieved (Code {}) for {}".format(responseCode, arena_id))
+                log("[WinChance] Battle results retrieved (Code {}) for {} (space={})".format(responseCode, arena_id, self.current_space_id))
                 self.remove_pending_battle(arena_id)
                 self.on_hangar_battle_results(0, results)
-    #        else:
-                # log("[WinChance] No results returned in callback for {} (Code: {})".format(arena_id, responseCode))
-                # Do NOT remove from pending, try again later.
-                # Пытаемся прочитать из .dat файлов
-#           log("[WinChance] Trying to read battle results from .dat files for arena {}".format(arena_id))
-#            dat_results = self.read_battle_result_from_dat(arena_id)
-#            if dat_results:
-#                log("[WinChance] Successfully loaded results from .dat file")
-#                self.remove_pending_battle(arena_id)
-#                self.on_hangar_battle_results(0, dat_results)
+            else:
+                # No results - will retry on next poll
+                log("[WinChance] No results yet for {} (Code: {}) - will retry".format(arena_id, responseCode))
                  
         except Exception as e:
             err("[WinChance] Error in on_battle_results_callback: {}".format(e))
 
     def on_battle_results_received(self, isPlayerVehicle, results):
+        """Event handler - получает результаты от игры независимо от текущего Space"""
         if not isPlayerVehicle or not results:
             return
         
         try:
              arena_id = results.get('arenaUniqueID')
-             log("[WinChance] Received onBattleResultsReceived for arena {}".format(arena_id))
-             # If we receive it naturally, we can process it and remove from pending (if it was there)
+             log("[WinChance] Received onBattleResultsReceived for arena {} (space={})".format(arena_id, self.current_space_id))
+             # Обрабатываем результаты независимо от Space - даже если мы уже в новом бою
              self.remove_pending_battle(arena_id)
              self.on_hangar_battle_results(0, results)
         except Exception as e:
@@ -680,6 +824,10 @@ class WinChanceMod(object):
             
             if not results:
                 return
+
+            # Сохраняем сырые результаты боя в JSON для анализа
+            arena_id = results.get('arenaUniqueID')
+            self.save_raw_battle_results(arena_id, results)
 
             common = results.get('common', {})
             personal = results.get('personal', {})
@@ -760,7 +908,8 @@ class WinChanceMod(object):
                 tank_info['id'] = vehicle_cd
                 try:
                     vt = vehiclesWG.getVehicleType(vehicle_cd)
-                    tank_info['name'] = vt.userString
+                    # Используем техническое имя вместо локализованного
+                    tank_info['name'] = vt.name
                     tank_info['tier'] = vt.level
                 except: pass
 
@@ -781,9 +930,62 @@ class WinChanceMod(object):
             win_chance = context_data.get('WinChance', 0.0)
             ally_wgr = context_data.get('AllyWgr', 0.0)
             enemy_wgr = context_data.get('EnemyWgr', 0.0)
+            
+            # Предупреждение если данные WinChance отсутствуют
+            if win_chance == 0.0 and ally_wgr == 0.0 and enemy_wgr == 0.0:
+                err("[WinChance] WARNING: WinChance/WGR data missing for arena {}! Context keys: {}".format(
+                    arena_id, list(context_data.keys())))
+                err("[WinChance] This likely means the API stats request didn't complete before battle ended.")
+                # НЕ используем self.win_chance как fallback - эти значения могут быть от ДРУГОГО боя!
+                # Лучше отправить 0 чем неправильные данные
 
             log("[WinChance] Result: {} Map: {} Tank: {} DMG: {} Chance: {:.1f}".format(
                 battle_result, map_name, tank_info['name'], damage_dealt, win_chance))
+            
+            # Сериализуем результаты боя для DetailedStats (как объект, не строка)
+            serializable_results = {}
+            try:
+                def make_serializable(obj, is_key=False):
+                    if isinstance(obj, dict):
+                        return {make_serializable(k, is_key=True): make_serializable(v) for k, v in obj.items()}
+                    elif is_key:
+                        # Ключи словаря должны быть строками
+                        if isinstance(obj, (list, tuple)):
+                            return str(obj)
+                        return str(obj)
+                    elif isinstance(obj, (list, tuple)):
+                        return [make_serializable(item) for item in obj]
+                    elif isinstance(obj, (int, float, bool, type(None))):
+                        return obj
+                    elif isinstance(obj, bytes):
+                        # Python 2: str это bytes, нужно декодировать
+                        try:
+                            return obj.decode('utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                return obj.decode('cp1251')
+                            except UnicodeDecodeError:
+                                return obj.decode('latin-1')  # fallback, всегда работает
+                    elif isinstance(obj, (frozenset, set)):
+                        return [make_serializable(item) for item in obj]
+                    else:
+                        # Для unicode и прочих типов
+                        try:
+                            return obj if isinstance(obj, basestring) else str(obj).decode('utf-8')
+                        except:
+                            return repr(obj)
+                
+                serializable_results = make_serializable(results)
+                # Сериализуем в строку для DetailedStatsJson
+                detailed_stats_json = json.dumps(serializable_results, ensure_ascii=True)
+                log("[WinChance] DetailedStats prepared, keys: {}, size: {} bytes".format(
+                    list(serializable_results.keys()) if serializable_results else [], len(detailed_stats_json)))
+            except Exception as e:
+                err("[WinChance] Error serializing detailed stats: {}".format(e))
+                import traceback
+                err(traceback.format_exc())
+                serializable_results = {}
+                detailed_stats_json = None
             
             # Определяем победу/поражение/ничью
             if winner_team == 0:
@@ -823,8 +1025,22 @@ class WinChanceMod(object):
                     'Tier': tank_info['tier'],
                     'Type': tank_info['type'],
                     'Nation': tank_info['nation']
-                }
+                },
+                'DetailedStatsJson': detailed_stats_json,
+                'DetailedStats': serializable_results
             }
+            
+            # Сохраняем отправляемый DTO для отладки
+            try:
+                dto_save_dir = os.path.abspath('./mods/configs/mod_winchance/sent_dto/')
+                if not os.path.exists(dto_save_dir):
+                    os.makedirs(dto_save_dir)
+                dto_file = os.path.join(dto_save_dir, '{}.json'.format(arena_id))
+                with open(dto_file, 'w') as f:
+                    json.dump(dto, f, indent=2, ensure_ascii=True)
+                log("[WinChance] Saved DTO to {}".format(dto_file))
+            except Exception as e:
+                err("[WinChance] Error saving DTO: {}".format(e))
             
             if self.api_client:
                 success = self.api_client.send_battle_result(dto)
