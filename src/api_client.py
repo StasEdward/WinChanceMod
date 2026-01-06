@@ -127,6 +127,10 @@ class BattleAPIClient(object):
                 json_data = json.dumps(data, ensure_ascii=True)
                 self.log("JSON prepared, size: {} bytes".format(len(json_data)))
                 
+                # Логируем первые 500 символов для проверки содержимого
+                preview = json_data[:500] + "..." if len(json_data) > 500 else json_data
+                self.log("Data preview: {}".format(preview))
+                
                 current_try = 0
                 while current_try <= retries:
                     try:
