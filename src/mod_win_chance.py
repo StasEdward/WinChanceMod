@@ -1,4 +1,4 @@
-import BigWorld
+urllibimport BigWorld
 import json
 import os
 import threading
@@ -73,9 +73,9 @@ class StatsFetcher(object):
     def fetch_stats(self, account_ids, callback):
         def _worker():
             try:
-                log("[WinChance] fetch_stats worker started")
+                log("fetch_stats worker started")
                 if not account_ids:
-                    log("[WinChance] No account IDs provided")
+                    log("No account IDs provided")
                     callback({})
                     return
                 
@@ -83,39 +83,39 @@ class StatsFetcher(object):
                 url = "{}?application_id={}&account_id={}&fields=global_rating".format(
                     self.base_url, self.app_id, ids_str)
                 
-                log("[WinChance] Fetching stats for {} players...".format(len(account_ids)))
-                log("[WinChance] API URL: {}".format(url[:100] + "..."))
+                log("Fetching stats for {} players...".format(len(account_ids)))
+                log("API URL: {}".format(url[:100] + "..."))
                 
                 response = urllib2.urlopen(url, timeout=10)
                 data = json.load(response)
                 
-                log("[WinChance] API response status: {}".format(data.get('status', 'unknown')))
+                log("API response status: {}".format(data.get('status', 'unknown')))
                 
                 if data.get('status') == 'ok':
                     result_data = data.get('data', {})
-                    log("[WinChance] API returned data for {} players".format(len(result_data)))
+                    log("API returned data for {} players".format(len(result_data)))
                     callback(result_data)
                 else:
-                    err("[WinChance] API Error: {}".format(data.get('error', 'unknown')))
+                    err("API Error: {}".format(data.get('error', 'unknown')))
                     callback({})
                     
             except urllib2.HTTPError as e:
-                err("[WinChance] HTTP Error {}: {}".format(e.code, e.reason))
+                err("HTTP Error {}: {}".format(e.code, e.reason))
                 callback({})
             except urllib2.URLError as e:
-                err("[WinChance] URL Error: {}".format(e.reason))
+                err("URL Error: {}".format(e.reason))
                 callback({})
             except Exception as e:
-                err("[WinChance] Fetch Error: {}".format(e))
+                err("Fetch Error: {}".format(e))
                 import traceback
                 err(traceback.format_exc())
                 callback({})
 
-        log("[WinChance] Starting stats fetch thread...")
+        log("Starting stats fetch thread...")
         t = threading.Thread(target=_worker)
         t.daemon = True  # Делаем поток демоном чтобы не блокировать выход
         t.start()
-        log("[WinChance] Stats fetch thread started")
+        log("Stats fetch thread started")
 
 
 class WinChanceCalculator(object):
@@ -184,7 +184,7 @@ class WinChanceMod(object):
                 with open(file_path, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            err("[WinChance] Error loading battle context for {}: {}".format(arena_id, e))
+            err("Error loading battle context for {}: {}".format(arena_id, e))
         return {}
 
     def save_battle_context(self, arena_id, context_data):
@@ -200,9 +200,9 @@ class WinChanceMod(object):
             file_path = os.path.join(self.BATTLE_CONTEXT_DIR, '{}.json'.format(arena_id))
             with open(file_path, 'w') as f:
                 json.dump(current_data, f)
-            log("[WinChance] Saved context to {}".format(file_path))
+            log("Saved context to {}".format(file_path))
         except Exception as e:
-            err("[WinChance] Error saving battle context: {}".format(e))
+            err("Error saving battle context: {}".format(e))
             
     def delete_battle_context(self, arena_id):
         """Removes context file for an arena"""
@@ -210,7 +210,7 @@ class WinChanceMod(object):
             file_path = os.path.join(self.BATTLE_CONTEXT_DIR, '{}.json'.format(arena_id))
             if os.path.exists(file_path):
                 os.remove(file_path)
-                log("[WinChance] Deleted context file {}".format(file_path))
+                log("Deleted context file {}".format(file_path))
         except:
             pass
 
@@ -220,7 +220,7 @@ class WinChanceMod(object):
                 with open(self.PENDING_BATTLES_FILE, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            err("[WinChance] Error loading pending battles: {}".format(e))
+            err("Error loading pending battles: {}".format(e))
         return []
 
     def save_pending_battles(self, battles):
@@ -231,27 +231,27 @@ class WinChanceMod(object):
             with open(self.PENDING_BATTLES_FILE, 'w') as f:
                 json.dump(battles, f)
         except Exception as e:
-            err("[WinChance] Error saving pending battles: {}".format(e))
+            err("Error saving pending battles: {}".format(e))
 
     def add_pending_battle(self, arena_id):
         battles = self.load_pending_battles()
         if arena_id not in battles:
             battles.append(arena_id)
             self.save_pending_battles(battles)
-            log("[WinChance] Added pending battle ID: {}".format(arena_id))
+            log("Added pending battle ID: {}".format(arena_id))
 
     def remove_pending_battle(self, arena_id):
         battles = self.load_pending_battles()
         if arena_id in battles:
             battles.remove(arena_id)
             self.save_pending_battles(battles)
-            log("[WinChance] Removed pending battle ID: {}".format(arena_id))
+            log("Removed pending battle ID: {}".format(arena_id))
 
     def check_pending_battles_loop(self):
         # Не запрашиваем результаты если игрок не в ангаре (Space 3)
         # Space 1 = загрузка, 4 = загрузка боя, 5 = бой
         if self.current_space_id != 3:
-            log("[WinChance] Skipping pending check - not in hangar (space={})".format(self.current_space_id))
+            log("Skipping pending check - not in hangar (space={})".format(self.current_space_id))
             self.pending_loop_active = False
             return
         
@@ -261,7 +261,7 @@ class WinChanceMod(object):
             return
         
         self.pending_loop_active = True
-        log("[WinChance] Polling {} pending battles...".format(len(battles)))
+        log("Polling {} pending battles...".format(len(battles)))
         for arena_id in battles:
             self.request_battle_results(arena_id)
             
@@ -303,7 +303,7 @@ class WinChanceMod(object):
                     # Retry if player not ready
                     BigWorld.callback(5.0, self.retry_add_pending_battle)
             except Exception as e:
-                err("[WinChance] Error adding pending battle on entry: {}".format(e))
+                err("Error adding pending battle on entry: {}".format(e))
 
             # Создаем overlay для боя
             if self.overlay is None:
@@ -379,9 +379,9 @@ class WinChanceMod(object):
         try:
             if player and hasattr(player, 'arenaUniqueID'):
                 current_arena_id = player.arenaUniqueID
-                log("[WinChance] Captured arena_id: {}".format(current_arena_id))
+                log("Captured arena_id: {}".format(current_arena_id))
         except Exception as e:
-            err("[WinChance] Failed to capture arena_id: {}".format(e))
+            err("Failed to capture arena_id: {}".format(e))
         
         # Захватываем информацию о танке СЕЙЧАС, пока player валиден
         try:
@@ -414,9 +414,9 @@ class WinChanceMod(object):
                     'type': vehicle_type_class,
                     'nation': vehicle_nation
                 }
-                log("[WinChance] Captured vehicle info: {} (Tier {})".format(vehicle_name, captured_vehicle_info['tier']))
+                log("Captured vehicle info: {} (Tier {})".format(vehicle_name, captured_vehicle_info['tier']))
         except Exception as e:
-            err("[WinChance] Failed to capture vehicle info: {}".format(e))
+            err("Failed to capture vehicle info: {}".format(e))
             captured_vehicle_info = {'id': 0, 'name': 'Unknown', 'tier': 0, 'type': 'unknown', 'nation': 'unknown'}
         
         # Захватываем название карты СЕЙЧАС
@@ -426,9 +426,9 @@ class WinChanceMod(object):
                 captured_map_name = i18n.makeString('#arenas:%s/name' % geometry_name)
                 if not captured_map_name or captured_map_name.startswith('#arenas:'):
                     captured_map_name = geometry_name
-                log("[WinChance] Captured map name: {}".format(captured_map_name))
+                log("Captured map name: {}".format(captured_map_name))
         except Exception as e:
-            err("[WinChance] Failed to capture map name: {}".format(e))
+            err("Failed to capture map name: {}".format(e))
         
         # Сохраняем захваченные данные в контекст СРАЗУ (до async операции)
         if current_arena_id:
@@ -441,7 +441,7 @@ class WinChanceMod(object):
                 'MapName': captured_map_name
             }
             self.save_battle_context(current_arena_id, initial_context)
-            log("[WinChance] Saved initial context (tank+map) for arena {}".format(current_arena_id))
+            log("Saved initial context (tank+map) for arena {}".format(current_arena_id))
         
         def on_stats_received(data):
             log("Stats received, data len: {}".format(len(data)))
@@ -490,9 +490,9 @@ class WinChanceMod(object):
             # Используем захваченный arena_id из closure (не от player, т.к. он может быть уже недоступен)
             if current_arena_id:
                 self.save_battle_context(current_arena_id, context_update)
-                log("[WinChance] Saved WinChance/WGR context for arena {}".format(current_arena_id))
+                log("Saved WinChance/WGR context for arena {}".format(current_arena_id))
             else:
-                err("[WinChance] CRITICAL: Cannot save WinChance - no arena_id available!")
+                err("CRITICAL: Cannot save WinChance - no arena_id available!")
             # ------------------------------------------------------
             
             log("Calculated Chance: {:.1f}%".format(chance))
@@ -503,39 +503,39 @@ class WinChanceMod(object):
                     chance, avg_team_wgr, avg_enemy_wgr)
  
             # Используем overlay вместо show_text
-            log("[WinChance] Attempting to display data...")
+            log("Attempting to display data...")
             if self.overlay:
-                log("[WinChance] Calling overlay.update_text()")
+                log("Calling overlay.update_text()")
                 self.overlay.update_text(display_text)
             else:
-                err("[WinChance] Overlay is None! Cannot display data")
+                err("Overlay is None! Cannot display data")
                 log(display_text)
         
         # ВАЖНО: Вызываем fetch_stats здесь, а не в stop()!
-        log("[WinChance] Calling fetch_stats for {} account IDs...".format(len(all_ids)))
+        log("Calling fetch_stats for {} account IDs...".format(len(all_ids)))
         self.stats_fetcher.fetch_stats(all_ids, on_stats_received)
 
     def request_battle_results(self, arena_id):
         """Request battle results from cache/server"""
-        log("[WinChance] Requesting battle results for arena {}".format(arena_id))
+        log("Requesting battle results for arena {}".format(arena_id))
         
         # Валидация arena_id - должен быть разумным числом
         try:
             arena_id_int = int(arena_id)
             # Типичные arena_id имеют длину 16-19 цифр
             if arena_id_int <= 0 or arena_id_int > 10**20:
-                err("[WinChance] Invalid arena_id: {} - removing from pending".format(arena_id))
+                err("Invalid arena_id: {} - removing from pending".format(arena_id))
                 self.remove_pending_battle(arena_id)
                 self.delete_battle_context(arena_id)
                 return
         except (ValueError, TypeError):
-            err("[WinChance] Invalid arena_id format: {} - removing from pending".format(arena_id))
+            err("Invalid arena_id format: {} - removing from pending".format(arena_id))
             self.remove_pending_battle(arena_id)
             return
         
         # Не запрашиваем если не в ангаре
         if self.current_space_id != 3:
-            log("[WinChance] Skipping request - not in hangar (space={})".format(self.current_space_id))
+            log("Skipping request - not in hangar (space={})".format(self.current_space_id))
             return
         
         try:
@@ -552,14 +552,14 @@ class WinChanceMod(object):
                      except Exception as e:
                          # НЕ удаляем данные при временных ошибках!
                          # Это может быть из-за загрузки боя или других временных проблем
-                         err("[WinChance] BattleResultsCache.get failed: {} - will retry later".format(e))
+                         err("BattleResultsCache.get failed: {} - will retry later".format(e))
                          # НЕ вызываем remove_pending_battle и delete_battle_context!
                  else:
-                     log("[WinChance] BattleResultsCache is None - will retry later")
+                     log("BattleResultsCache is None - will retry later")
             else:
-                log("[WinChance] AccountRepository is None - will retry later")
+                log("AccountRepository is None - will retry later")
         except Exception as e:
-            err("[WinChance] Error requesting battle results: {} - will retry later".format(e))
+            err("Error requesting battle results: {} - will retry later".format(e))
             import traceback
             err(traceback.format_exc())
             
@@ -572,16 +572,16 @@ class WinChanceMod(object):
             # Путь к папке с результатами боев
             appdata = os.environ.get('APPDATA', '')
             if not appdata:
-                err("[WinChance] APPDATA environment variable not found")
+                err("APPDATA environment variable not found")
                 return None
             
             battle_results_dir = os.path.join(appdata, 'Wargaming.net', 'WorldOfTanks', 'battle_results')
             
             if not os.path.exists(battle_results_dir):
-                log("[WinChance] Battle results directory not found: {}".format(battle_results_dir))
+                log("Battle results directory not found: {}".format(battle_results_dir))
                 return None
             
-            log("[WinChance] Scanning battle results directory: {}".format(battle_results_dir))
+            log("Scanning battle results directory: {}".format(battle_results_dir))
             
             # Ищем все .dat файлы во всех подпапках
             dat_files = []
@@ -592,20 +592,20 @@ class WinChanceMod(object):
                 if root != battle_results_dir:
                     subdir_name = os.path.basename(root)
                     subdirs_scanned.append(subdir_name)
-                    log("[WinChance] Scanning subfolder: {}".format(subdir_name))
+                    log("Scanning subfolder: {}".format(subdir_name))
                 
                 # Ищем .dat файлы в текущей папке
                 for file in files:
                     if file.endswith('.dat'):
                         full_path = os.path.join(root, file)
                         dat_files.append(full_path)
-                        log("[WinChance] Found .dat file: {} in {}".format(file, os.path.basename(root)))
+                        log("Found .dat file: {} in {}".format(file, os.path.basename(root)))
             
-            log("[WinChance] Total subfolders scanned: {}".format(len(subdirs_scanned)))
-            log("[WinChance] Total .dat files found: {}".format(len(dat_files)))
+            log("Total subfolders scanned: {}".format(len(subdirs_scanned)))
+            log("Total .dat files found: {}".format(len(dat_files)))
             
             if not dat_files:
-                log("[WinChance] No .dat files found in {}".format(battle_results_dir))
+                log("No .dat files found in {}".format(battle_results_dir))
                 return None
             
             # Пытаемся загрузить результаты используя BattleResultsCache
@@ -631,25 +631,25 @@ class WinChanceMod(object):
                         # Проверяем, соответствует ли arena_id
                         file_arena_id = full_results.get('arenaUniqueID')
                         if file_arena_id == arena_id:
-                            log("[WinChance] Found matching battle result in {}".format(os.path.basename(dat_file)))
+                            log("Found matching battle result in {}".format(os.path.basename(dat_file)))
                             
                             # Сохраняем в JSON
                             self.save_battle_result_json(arena_id, full_results)
                             return full_results
                     
                     except Exception as e:
-                        debug("[WinChance] Error reading {}: {}".format(os.path.basename(dat_file), e))
+                        debug("Error reading {}: {}".format(os.path.basename(dat_file), e))
                         continue
                 
-                log("[WinChance] No matching .dat file found for arena {}".format(arena_id))
+                log("No matching .dat file found for arena {}".format(arena_id))
                 return None
                 
             except ImportError:
-                err("[WinChance] BattleResultsCache import failed")
+                err("BattleResultsCache import failed")
                 return None
             
         except Exception as e:
-            err("[WinChance] Error in read_battle_result_from_dat: {}".format(e))
+            err("Error in read_battle_result_from_dat: {}".format(e))
             import traceback
             err(traceback.format_exc())
             return None
@@ -666,9 +666,9 @@ class WinChanceMod(object):
             with open(file_path, 'w') as f:
                 json.dump(results, f, indent=2)
             
-            log("[WinChance] Saved battle results to {}".format(file_path))
+            log("Saved battle results to {}".format(file_path))
         except Exception as e:
-            err("[WinChance] Error saving battle results JSON: {}".format(e))
+            err("Error saving battle results JSON: {}".format(e))
 
     def save_raw_battle_results(self, arena_id, results):
         """Сохраняет сырые результаты боя из callback в JSON для анализа"""
@@ -715,7 +715,7 @@ class WinChanceMod(object):
             with open(file_path, 'w') as f:
                 json.dump(serializable_results, f, indent=2, ensure_ascii=False)
             
-            log("[WinChance] Saved raw battle results to {}".format(file_path))
+            log("Saved raw battle results to {}".format(file_path))
             
             # Отправляем сырые данные на API
             if self.api_client:
@@ -732,7 +732,7 @@ class WinChanceMod(object):
                         avatar_data = personal.get('avatar', {})
                         if avatar_data and 'accountDBID' in avatar_data:
                             account_id = avatar_data.get('accountDBID', 0)
-                            log("[WinChance] Got account_id from personal.avatar: {}".format(account_id))
+                            log("Got account_id from personal.avatar: {}".format(account_id))
                         
                         # 2. Пробуем из первого элемента personal (vehicle_cd -> data -> avatar)
                         if not account_id:
@@ -740,7 +740,7 @@ class WinChanceMod(object):
                                 if isinstance(data, dict) and 'avatar' in data:
                                     account_id = data['avatar'].get('accountDBID', 0)
                                     if account_id:
-                                        log("[WinChance] Got account_id from personal[{}].avatar: {}".format(key, account_id))
+                                        log("Got account_id from personal[{}].avatar: {}".format(key, account_id))
                                         break
                     
                     # 3. Fallback - из BigWorld.player()
@@ -748,15 +748,15 @@ class WinChanceMod(object):
                         player_info = self.api_client.get_player_info()
                         if player_info:
                             account_id = player_info.get('account_id', 0)
-                            log("[WinChance] Got account_id from BigWorld.player: {}".format(account_id))
+                            log("Got account_id from BigWorld.player: {}".format(account_id))
                     
                     # 4. Fallback - из сохранённого api_account_id в клиенте
                     if not account_id and self.api_client.api_account_id:
                         account_id = self.api_client.api_account_id
-                        log("[WinChance] Got account_id from api_client.api_account_id: {}".format(account_id))
+                        log("Got account_id from api_client.api_account_id: {}".format(account_id))
                     
                     if not account_id:
-                        err("[WinChance] WARNING: Could not get account_id from any source!")
+                        err("WARNING: Could not get account_id from any source!")
                     
                     # Время боя из arenaCreateTime + duration
                     common = results.get('common', {})
@@ -775,12 +775,12 @@ class WinChanceMod(object):
                         battle_time=battle_time,
                         raw_json=raw_json
                     )
-                    log("[WinChance] Raw battle results sent to API")
+                    log("Raw battle results sent to API")
                 except Exception as e:
-                    err("[WinChance] Error sending raw results to API: {}".format(e))
+                    err("Error sending raw results to API: {}".format(e))
                     
         except Exception as e:
-            err("[WinChance] Error saving raw battle results: {}".format(e))
+            err("Error saving raw battle results: {}".format(e))
             import traceback
             err(traceback.format_exc())
 
@@ -789,20 +789,20 @@ class WinChanceMod(object):
         try:
             # Check if results are valid
             if results and (responseCode == 0 or responseCode == 1): # Accept success codes
-                log("[WinChance] Battle results retrieved via callback for {} (space={})".format(arena_id, self.current_space_id))
+                log("Battle results retrieved via callback for {} (space={})".format(arena_id, self.current_space_id))
                 self.remove_pending_battle(arena_id)
                 self.on_hangar_battle_results(0, results)
             elif results:
                 # Even if code is weird, if we have results, take them.
-                log("[WinChance] Battle results retrieved (Code {}) for {} (space={})".format(responseCode, arena_id, self.current_space_id))
+                log("Battle results retrieved (Code {}) for {} (space={})".format(responseCode, arena_id, self.current_space_id))
                 self.remove_pending_battle(arena_id)
                 self.on_hangar_battle_results(0, results)
             else:
                 # No results - will retry on next poll
-                log("[WinChance] No results yet for {} (Code: {}) - will retry".format(arena_id, responseCode))
+                log("No results yet for {} (Code: {}) - will retry".format(arena_id, responseCode))
                  
         except Exception as e:
-            err("[WinChance] Error in on_battle_results_callback: {}".format(e))
+            err("Error in on_battle_results_callback: {}".format(e))
 
     def on_battle_results_received(self, isPlayerVehicle, results):
         """Event handler - получает результаты от игры независимо от текущего Space"""
@@ -811,17 +811,17 @@ class WinChanceMod(object):
         
         try:
              arena_id = results.get('arenaUniqueID')
-             log("[WinChance] Received onBattleResultsReceived for arena {} (space={})".format(arena_id, self.current_space_id))
+             log("Received onBattleResultsReceived for arena {} (space={})".format(arena_id, self.current_space_id))
              # Обрабатываем результаты независимо от Space - даже если мы уже в новом бою
              self.remove_pending_battle(arena_id)
              self.on_hangar_battle_results(0, results)
         except Exception as e:
-            err("[WinChance] Error in on_battle_results_received: {}".format(e))
+            err("Error in on_battle_results_received: {}".format(e))
 
     def on_hangar_battle_results(self, responseCode, results):
         """Process battle results (from cache or event)"""
         try:
-            log("[WinChance] Processing battle results...")
+            log("Processing battle results...")
             
             if not results:
                 return
@@ -845,7 +845,7 @@ class WinChanceMod(object):
             # Load preserved context (WinChance, WGR, Tank Info from battle start)
             context_data = self.load_battle_context(arena_id)
             
-            log("[WinChance] Loaded context for arena {}: {}".format(arena_id, context_data.keys()))
+            log("Loaded context for arena {}: {}".format(arena_id, context_data.keys()))
 
             # Map Name extraction
             map_name = context_data.get('MapName', 'Unknown')
@@ -934,13 +934,13 @@ class WinChanceMod(object):
             
             # Предупреждение если данные WinChance отсутствуют
             if win_chance == 0.0 and ally_wgr == 0.0 and enemy_wgr == 0.0:
-                err("[WinChance] WARNING: WinChance/WGR data missing for arena {}! Context keys: {}".format(
+                err("WARNING: WinChance/WGR data missing for arena {}! Context keys: {}".format(
                     arena_id, list(context_data.keys())))
-                err("[WinChance] This likely means the API stats request didn't complete before battle ended.")
+                err("This likely means the API stats request didn't complete before battle ended.")
                 # НЕ используем self.win_chance как fallback - эти значения могут быть от ДРУГОГО боя!
                 # Лучше отправить 0 чем неправильные данные
 
-            log("[WinChance] Result: {} Map: {} Tank: {} DMG: {} Chance: {:.1f}".format(
+            log("Result: {} Map: {} Tank: {} DMG: {} Chance: {:.1f}".format(
                 battle_result, map_name, tank_info['name'], damage_dealt, win_chance))
             
             # Сериализуем результаты боя для DetailedStats (как объект, не строка)
@@ -979,10 +979,10 @@ class WinChanceMod(object):
                 serializable_results = make_serializable(results)
                 # Сериализуем в строку для DetailedStatsJson
                 detailed_stats_json = json.dumps(serializable_results, ensure_ascii=True)
-                log("[WinChance] DetailedStats prepared, keys: {}, size: {} bytes".format(
+                log("DetailedStats prepared, keys: {}, size: {} bytes".format(
                     list(serializable_results.keys()) if serializable_results else [], len(detailed_stats_json)))
             except Exception as e:
-                err("[WinChance] Error serializing detailed stats: {}".format(e))
+                err("Error serializing detailed stats: {}".format(e))
                 import traceback
                 err(traceback.format_exc())
                 serializable_results = {}
@@ -1039,9 +1039,9 @@ class WinChanceMod(object):
                 dto_file = os.path.join(dto_save_dir, '{}.json'.format(arena_id))
                 with open(dto_file, 'w') as f:
                     json.dump(dto, f, indent=2, ensure_ascii=True)
-                log("[WinChance] Saved DTO to {}".format(dto_file))
+                log("Saved DTO to {}".format(dto_file))
             except Exception as e:
-                err("[WinChance] Error saving DTO: {}".format(e))
+                err("Error saving DTO: {}".format(e))
             
             if self.api_client:
                 success = self.api_client.send_battle_result(dto)
@@ -1050,7 +1050,7 @@ class WinChanceMod(object):
                     self.delete_battle_context(arena_id)
                 
         except Exception as e:
-            err("[WinChance] Error in on_hangar_battle_results: {}".format(e))
+            err("Error in on_hangar_battle_results: {}".format(e))
             import traceback
             err(traceback.format_exc())
 
@@ -1064,7 +1064,7 @@ class WinChanceMod(object):
 
             
     def stop(self):
-        log("[WinChance] Stopping mod and removing handlers...")
+        log("Stopping mod and removing handlers...")
         """Остановка мода и отключение обработчиков"""
         if not self.started:
             return
@@ -1095,11 +1095,11 @@ class WinChanceMod(object):
     def fini(self):
         """Финализация мода"""
         try:
-            log("[WinChance] Shutting down mod...")
+            log("Shutting down mod...")
             self.stop()
-            log("[WinChance] Mod shut down successfully")
+            log("Mod shut down successfully")
         except Exception as e:
-            err("[WinChance] Error in fini: {}".format(e))
+            err("Error in fini: {}".format(e))
             
 #        self.stats_fetcher.fetch_stats(all_ids, on_stats_received)
 
@@ -1132,15 +1132,15 @@ class DraggableWinChanceWindow(object):
                     
                     # Валидация позиции - должна быть в пределах экрана
                     if self.posX < 0 or self.posX > 1.0:
-                        log("[WinChance] Invalid posX {}, resetting to default".format(self.posX))
+                        log("Invalid posX {}, resetting to default".format(self.posX))
                         self.posX = 0.75
                     if self.posY < 0 or self.posY > 1.0:
-                        log("[WinChance] Invalid posY {}, resetting to default".format(self.posY))
+                        log("Invalid posY {}, resetting to default".format(self.posY))
                         self.posY = 0.05
                     
-                    log("[WinChance] Config loaded: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
+                    log("Config loaded: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
         except Exception as e:
-            debug("[WinChance] Error loading config: {}".format(e))
+            debug("Error loading config: {}".format(e))
     
     def saveConfig(self):
         """Сохраняет позицию в конфиг"""
@@ -1159,26 +1159,26 @@ class DraggableWinChanceWindow(object):
             with open(config_path, 'w') as f:
                 json.dump(config, f, indent=2)
             
-            log("[WinChance] Config saved: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
+            log("Config saved: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
         except Exception as e:
-            debug("[WinChance] Error saving config: {}".format(e))
+            debug("Error saving config: {}".format(e))
     
     def create(self):
         """Cоздает окно"""
         try:
-            log("[WinChance] Window created (GUI-based)")
+            log("Window created (GUI-based)")
             return True
         except Exception as e:
-            err("[WinChance] Error creating window: {}".format(e))
+            err("Error creating window: {}".format(e))
             return False
     
     def update_text(self, text):
         """Обновляет текст окна"""
         try:
-            log("[WinChance] Updating overlay text: {}".format(text))
+            log("Updating overlay text: {}".format(text))
             self.createWindow(text)
         except Exception as e:
-            err("[WinChance] Update text error: {}".format(e))
+            err("Update text error: {}".format(e))
             import traceback
             err(traceback.format_exc())
     
@@ -1193,7 +1193,7 @@ class DraggableWinChanceWindow(object):
             lines = message.split('\n')
             
             if len(lines) < 2:
-                log("[WinChance] Invalid message format: {}".format(message))
+                log("Invalid message format: {}".format(message))
                 return
             
             # === Win Chance (первая строка) ===
@@ -1206,12 +1206,12 @@ class DraggableWinChanceWindow(object):
                 if len(parts) >= 2:
                     percent_part = parts[1].split('%')[0].strip()
                     chance_value = float(percent_part)
-                    log("[WinChance] Parsed chance value: {}%".format(chance_value))
+                    log("Parsed chance value: {}%".format(chance_value))
                 else:
-                    log("[WinChance] Cannot parse chance from: {}".format(chance_line))
+                    log("Cannot parse chance from: {}".format(chance_line))
                     chance_value = 50.0
             except Exception as e:
-                err("[WinChance] Error parsing chance value from '{}': {}".format(chance_line, e))
+                err("Error parsing chance value from '{}': {}".format(chance_line, e))
                 import traceback
                 err(traceback.format_exc())
                 chance_value = 50.0
@@ -1243,10 +1243,10 @@ class DraggableWinChanceWindow(object):
                 self.components.append(('text', wgrText, 0.025))
             
             self.startMouseHandler()
-            log("[WinChance] Window created successfully")
+            log("Window created successfully")
             
         except Exception as e:
-            err("[WinChance] Error creating window: {}".format(e))
+            err("Error creating window: {}".format(e))
     
     def destroyWindow(self):
         """Уничтожает окно"""
@@ -1312,7 +1312,7 @@ class DraggableWinChanceWindow(object):
                         self.isDragging = False
                         self.saveConfig()
         except Exception as e:
-            debug("[WinChance] Mouse error: {}".format(e))
+            debug("Mouse error: {}".format(e))
         
         # Следующая проверка
         self.callbackID = BigWorld.callback(0.05, self.checkMouseInput)
@@ -1333,9 +1333,9 @@ class DraggableWinChanceWindow(object):
         """Уничтожает окно"""
         try:
             self.destroyWindow()
-            log("[WinChance] Window destroyed")
+            log("Window destroyed")
         except Exception as e:
-            err("[WinChance] Error destroying window: {}".format(e))
+            err("Error destroying window: {}".format(e))
     
 # Initialization
 g_winChanceMod = WinChanceMod()
@@ -1373,7 +1373,7 @@ try:
         try:
             messenger = MessengerEntry.g_instance
             if not messenger:
-                err("[WinChance] MessengerEntry.g_instance is None")
+                err("MessengerEntry.g_instance is None")
                 return
 
             # Try to get BW plugin
@@ -1387,7 +1387,7 @@ try:
     hook_service_channel()
 
 except Exception as e:
-    err("[WinChance] Error initializing ServiceChannel hook: {}".format(e))
+    err("Error initializing ServiceChannel hook: {}".format(e))
 
 # Global fini
 def fini():
@@ -1395,4 +1395,4 @@ def fini():
     try:
         g_winChanceMod.fini()
     except Exception as e:
-        err("[WinChance] Error in global fini: {}".format(e)) 
+        err("Error in global fini: {}".format(e)) 
