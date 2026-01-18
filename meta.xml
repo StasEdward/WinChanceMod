@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
     <id>mod_win_chance</id>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <name>WinChance Mod</name>
     <description>Displays win chance based on WGR ratings and sends battle results to API</description>
     <author>car86</author>

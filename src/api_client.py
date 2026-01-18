@@ -64,23 +64,6 @@ class BattleAPIClient(object):
         print(formatted)
         self._write_log(formatted)
     
-    def send_battle_result(self, api_data):
-        """
-        Отправка результата боя на API
-        
-        Args:
-            api_data (dict): Данные в формате BattleResultDto
-        
-        Returns:
-            bool: True если отправка запущена успешно
-        """
-        try:
-            self._send_async('POST', '/api/battles', api_data)
-            return True
-        except Exception as e:
-            self.err("Failed to send battle result: {}".format(e))
-            return False
-    
     def send_raw_battle_result(self, battle_id, account_id, battle_time, raw_json):
         """
         Отправка сырых результатов боя на API
@@ -122,14 +105,8 @@ class BattleAPIClient(object):
             try:
                 # Подготовка данных (делаем один раз)
                 url = self.api_url + endpoint 
-                self.log("Preparing JSON data for {}...".format(endpoint))
                 # ensure_ascii=True - безопасная сериализация, экранирует не-ASCII символы
                 json_data = json.dumps(data, ensure_ascii=True)
-                self.log("JSON prepared, size: {} bytes".format(len(json_data)))
-                
-                # Логируем первые 500 символов для проверки содержимого
-                preview = json_data[:500] + "..." if len(json_data) > 500 else json_data
-                self.log("Data preview: {}".format(preview))
                 
                 current_try = 0
                 while current_try <= retries:
@@ -143,9 +120,6 @@ class BattleAPIClient(object):
                             req.add_header('Authorization', 'Bearer {}'.format(self.api_token))
                         
                         # Отправка
-                        self.log("Sending {} to {} (Attempt {}/{})".format(method, url, current_try + 1, retries + 1))
-                        self.log("Data size: {} bytes".format(len(json_data)))
-                        
                         response = urllib2.urlopen(req, timeout=self.timeout)
                         
                         # Обработка ответа
@@ -179,7 +153,6 @@ class BattleAPIClient(object):
                     # Логика ретрая
                     current_try += 1
                     if current_try <= retries:
-                        self.log("Retrying check in {}s...".format(delay))
                         time.sleep(delay)
                 
                 self.err("Failed to send data after {} attempts".format(retries + 1))
@@ -202,18 +175,14 @@ class BattleAPIClient(object):
             bool: True если API доступен (отвечает), False иначе
         """
         try:
-            self.log("Testing API connection to {}".format(self.api_url))
             url = self.api_url + '/api/health'
             
             try:
                 response = urllib2.urlopen(url, timeout=5)
-                # 200 OK - всё хорошо
-                self.log("API connection successful (status: 200)")
                 return True
             except urllib2.HTTPError as e:
                 # Если 401 - сервер отвечает, просто требует авторизацию
                 if e.code == 401:
-                    self.log("API connection successful (status: 401, auth required)")
                     return True
                 else:
                     self.err("API returned unexpected status: {}".format(e.code))
@@ -261,12 +230,10 @@ class BattleAPIClient(object):
         Returns:
             str: Токен или None при ошибке
         """
-        self.log("Registering in API...")
         try:
             # Получаем информацию об игроке
             player_info = self.get_player_info()
             if not player_info:
-                self.log("Player info not yet available (normal in hangar)")
                 return None
             
             url = "{}/api/auth/register".format(self.api_url)
@@ -278,8 +245,7 @@ class BattleAPIClient(object):
                 'Region': player_info['region']
             }
             
-            self.log("Registering in API: {} {} REG: {}".format(
-                player_info['nickname'], player_info['account_id'], player_info['region']))
+            self.log("Registering: {} ({})".format(player_info['nickname'], player_info['account_id']))
             
             # Отправляем запрос
             request = urllib2.Request(url)
@@ -292,7 +258,7 @@ class BattleAPIClient(object):
             token = response_data.get('Token')
             
             if token:
-                self.log("Registration successful! Token received.")
+                self.log("Registration successful!")
                 
                 # Обновляем локальные переменные
                 self.api_token = token
@@ -328,7 +294,6 @@ class BattleAPIClient(object):
     
     def save_api_config(self):
         """Сохраняет конфигурацию API"""
-        self.log("Saving API config")
         try:
             config_path = './mods/configs/mod_winchance/mod_winchance_api.json'
             
@@ -340,7 +305,6 @@ class BattleAPIClient(object):
             with codecs.open(config_path, 'w', 'utf-8-sig') as f:
                 json.dump(self.api_config if self.api_config else {}, f, indent=2, ensure_ascii=False)
             
-            self.log("API config saved")
             return True
             
         except Exception as e:
@@ -354,24 +318,18 @@ class BattleAPIClient(object):
         Returns:
             bool: True если токен есть или получен успешно
         """
-        self.log("Checking and registering if needed")
         try:
             # Если интеграция отключена - не регистрируемся
             if not self.api_config or not self.api_config.get('enabled'):
-                self.log("API integration is disabled in config")
                 return False
             
             # Проверяем наличие токена
             if self.api_config.get('token'):
-                self.log("Token found in config")
                 # Обновляем локальные переменные из конфига
                 self.api_token = self.api_config.get('token')
                 self.api_account_id = self.api_config.get('account_id')
                 self.api_nickname = self.api_config.get('nickname')
-                self.log("Loaded account_id from config: {}".format(self.api_account_id))
                 return True
-            
-            self.log("No token found, attempting automatic registration...")
             
             # Пытаемся зарегистрироваться
             token = self.register_in_api()
@@ -380,7 +338,6 @@ class BattleAPIClient(object):
                 self.log("Automatic registration successful!")
                 return True
             else:
-                self.log("Registration postponed (will retry when entering battle)")
                 return False
                 
         except Exception as e:

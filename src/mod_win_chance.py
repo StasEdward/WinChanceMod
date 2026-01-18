@@ -1,4 +1,4 @@
-urllibimport BigWorld
+import BigWorld
 import json
 import os
 import threading
@@ -19,7 +19,7 @@ from helpers import i18n
 
 # Constants
 MOD_NAME = "WinChanceMod"
-MOD_VERSION = "1.1.0"
+MOD_VERSION = "1.2.0"
 APPLICATION_ID = "d8e40cfdafb13e426126fd330b61e104"  # User must replace this!
 
 # API Configuration
@@ -73,9 +73,7 @@ class StatsFetcher(object):
     def fetch_stats(self, account_ids, callback):
         def _worker():
             try:
-                log("fetch_stats worker started")
                 if not account_ids:
-                    log("No account IDs provided")
                     callback({})
                     return
                 
@@ -83,17 +81,11 @@ class StatsFetcher(object):
                 url = "{}?application_id={}&account_id={}&fields=global_rating".format(
                     self.base_url, self.app_id, ids_str)
                 
-                log("Fetching stats for {} players...".format(len(account_ids)))
-                log("API URL: {}".format(url[:100] + "..."))
-                
                 response = urllib2.urlopen(url, timeout=10)
                 data = json.load(response)
                 
-                log("API response status: {}".format(data.get('status', 'unknown')))
-                
                 if data.get('status') == 'ok':
                     result_data = data.get('data', {})
-                    log("API returned data for {} players".format(len(result_data)))
                     callback(result_data)
                 else:
                     err("API Error: {}".format(data.get('error', 'unknown')))
@@ -111,11 +103,9 @@ class StatsFetcher(object):
                 err(traceback.format_exc())
                 callback({})
 
-        log("Starting stats fetch thread...")
         t = threading.Thread(target=_worker)
-        t.daemon = True  # Делаем поток демоном чтобы не блокировать выход
+        t.daemon = True
         t.start()
-        log("Stats fetch thread started")
 
 
 class WinChanceCalculator(object):
@@ -186,35 +176,10 @@ class WinChanceMod(object):
         except Exception as e:
             err("Error loading battle context for {}: {}".format(arena_id, e))
         return {}
-
-    def save_battle_context(self, arena_id, context_data):
-        """Saves context data for a specific arena to a separate file"""
-        try:
-            if not os.path.exists(self.BATTLE_CONTEXT_DIR):
-                os.makedirs(self.BATTLE_CONTEXT_DIR)
             
-            # Load existing if any to merge updates
-            current_data = self.load_battle_context(arena_id)
-            current_data.update(context_data)
-            
-            file_path = os.path.join(self.BATTLE_CONTEXT_DIR, '{}.json'.format(arena_id))
-            with open(file_path, 'w') as f:
-                json.dump(current_data, f)
-            log("Saved context to {}".format(file_path))
-        except Exception as e:
-            err("Error saving battle context: {}".format(e))
-            
-    def delete_battle_context(self, arena_id):
-        """Removes context file for an arena"""
-        try:
-            file_path = os.path.join(self.BATTLE_CONTEXT_DIR, '{}.json'.format(arena_id))
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                log("Deleted context file {}".format(file_path))
-        except:
-            pass
 
     def load_pending_battles(self):
+        """Loads list of pending battle arena IDs"""
         try:
             if os.path.exists(self.PENDING_BATTLES_FILE):
                 with open(self.PENDING_BATTLES_FILE, 'r') as f:
@@ -238,20 +203,17 @@ class WinChanceMod(object):
         if arena_id not in battles:
             battles.append(arena_id)
             self.save_pending_battles(battles)
-            log("Added pending battle ID: {}".format(arena_id))
 
     def remove_pending_battle(self, arena_id):
         battles = self.load_pending_battles()
         if arena_id in battles:
             battles.remove(arena_id)
             self.save_pending_battles(battles)
-            log("Removed pending battle ID: {}".format(arena_id))
 
     def check_pending_battles_loop(self):
         # Не запрашиваем результаты если игрок не в ангаре (Space 3)
         # Space 1 = загрузка, 4 = загрузка боя, 5 = бой
         if self.current_space_id != 3:
-            log("Skipping pending check - not in hangar (space={})".format(self.current_space_id))
             self.pending_loop_active = False
             return
         
@@ -261,7 +223,6 @@ class WinChanceMod(object):
             return
         
         self.pending_loop_active = True
-        log("Polling {} pending battles...".format(len(battles)))
         for arena_id in battles:
             self.request_battle_results(arena_id)
             
@@ -272,7 +233,6 @@ class WinChanceMod(object):
             self.pending_loop_active = False
 
     def on_gui_space_entered(self, spaceID):
-        log("Space entered: {}".format(spaceID))
         self.current_space_id = spaceID  # Сохраняем текущий Space ID
         
         # Space ID 15/3 = Hangar 
@@ -285,11 +245,9 @@ class WinChanceMod(object):
             # Initialize API
             if not self.api_initialized and self.api_client:
                 self.api_initialized = True
-                log("Entering hangar, initializing API connection...")
                 if self.api_client.test_connection():
                     self.api_client.check_and_register_if_needed()
                 else:
-                    log("API is not available, will retry on next hangar entry")
                     self.api_initialized = False 
         
         # Space ID 5 = Battle
@@ -329,10 +287,8 @@ class WinChanceMod(object):
                 self.overlay = None
 
     def calculate_battle_stats(self):
-        log("Calculating stats...")
         player = BigWorld.player()
         if not player or not hasattr(player, 'arena'):
-            log("Player/Arena not ready, retrying...")
             BigWorld.callback(1.0, self.calculate_battle_stats)
             return
         
@@ -344,11 +300,9 @@ class WinChanceMod(object):
 
         arena = player.arena
         if not arena:
-            log("No arena found")
             return
 
         vehicles = arena.vehicles
-        log("Vehicles count: {}".format(len(vehicles)))
         
         player_team = player.team
         
@@ -365,7 +319,6 @@ class WinChanceMod(object):
             else:
                 enemy_ids.append(acc_id)
         
-        log("Team IDs: {}, Enemy IDs: {}".format(len(team_ids), len(enemy_ids)))
         all_ids = team_ids + enemy_ids
         
         # =======================================================================
@@ -379,72 +332,12 @@ class WinChanceMod(object):
         try:
             if player and hasattr(player, 'arenaUniqueID'):
                 current_arena_id = player.arenaUniqueID
-                log("Captured arena_id: {}".format(current_arena_id))
         except Exception as e:
             err("Failed to capture arena_id: {}".format(e))
         
-        # Захватываем информацию о танке СЕЙЧАС, пока player валиден
-        try:
-            if player and hasattr(player, 'vehicleTypeDescriptor'):
-                veh_descr = player.vehicleTypeDescriptor
-                vehicle_type = getattr(veh_descr, 'type', None)
-                vehicle_id = getattr(vehicle_type, 'compactDescr', 0) if vehicle_type else 0
-                # Используем техническое имя (name) вместо локализованного (userString)
-                # name имеет формат "nation:tank_code", например "france:F97_ELC_EVEN_90"
-                vehicle_name = getattr(vehicle_type, 'name', 'Unknown') if vehicle_type else 'Unknown'
-                vehicle_tags = getattr(vehicle_type, 'tags', frozenset()) if vehicle_type else frozenset()
-                
-                vehicle_type_class = 'unknown'
-                if vehicle_tags:
-                    tags_list = list(vehicle_tags)
-                    for tag in tags_list:
-                        if 'Tank' in tag or 'SPG' in tag:
-                            vehicle_type_class = tag
-                            break
-                    if vehicle_type_class == 'unknown' and tags_list:
-                        vehicle_type_class = tags_list[0]
-                
-                vehicle_name_parts = getattr(vehicle_type, 'name', '') if vehicle_type else ''
-                vehicle_nation = vehicle_name_parts.split(':')[0] if vehicle_name_parts and ':' in vehicle_name_parts else 'unknown'
-                
-                captured_vehicle_info = {
-                    'id': vehicle_id,
-                    'name': vehicle_name,
-                    'tier': veh_descr.level if hasattr(veh_descr, 'level') else 0,
-                    'type': vehicle_type_class,
-                    'nation': vehicle_nation
-                }
-                log("Captured vehicle info: {} (Tier {})".format(vehicle_name, captured_vehicle_info['tier']))
-        except Exception as e:
-            err("Failed to capture vehicle info: {}".format(e))
-            captured_vehicle_info = {'id': 0, 'name': 'Unknown', 'tier': 0, 'type': 'unknown', 'nation': 'unknown'}
-        
-        # Захватываем название карты СЕЙЧАС
-        try:
-            if arena and hasattr(arena, 'arenaType') and hasattr(arena.arenaType, 'geometryName'):
-                geometry_name = arena.arenaType.geometryName
-                captured_map_name = i18n.makeString('#arenas:%s/name' % geometry_name)
-                if not captured_map_name or captured_map_name.startswith('#arenas:'):
-                    captured_map_name = geometry_name
-                log("Captured map name: {}".format(captured_map_name))
-        except Exception as e:
-            err("Failed to capture map name: {}".format(e))
-        
-        # Сохраняем захваченные данные в контекст СРАЗУ (до async операции)
-        if current_arena_id:
-            initial_context = {
-                'TankId': captured_vehicle_info['id'] if captured_vehicle_info else 0,
-                'TankName': captured_vehicle_info['name'] if captured_vehicle_info else 'Unknown',
-                'TankTier': captured_vehicle_info['tier'] if captured_vehicle_info else 0,
-                'TankType': captured_vehicle_info['type'] if captured_vehicle_info else 'unknown',
-                'TankNation': captured_vehicle_info['nation'] if captured_vehicle_info else 'unknown',
-                'MapName': captured_map_name
-            }
-            self.save_battle_context(current_arena_id, initial_context)
-            log("Saved initial context (tank+map) for arena {}".format(current_arena_id))
-        
+       
+       
         def on_stats_received(data):
-            log("Stats received, data len: {}".format(len(data)))
             team_ratings = []
             enemy_ratings = []
             team_wgr_xvm = []
@@ -476,48 +369,21 @@ class WinChanceMod(object):
             avg_team_wgr = sum(team_wgr_xvm) / float(len(team_wgr_xvm)) if team_wgr_xvm else 0
             avg_enemy_wgr = sum(enemy_wgr_xvm) / float(len(enemy_wgr_xvm)) if enemy_wgr_xvm else 0
             
-            # Сохраняем статистику для использования после боя
-            self.win_chance = chance
-            self.ally_wgr = avg_team_wgr
-            self.enemy_wgr = avg_enemy_wgr
-            
-            # --- PERSISTENCE: Save WinChance and WGR to context ---
-            context_update = {
-                'WinChance': chance,
-                'AllyWgr': avg_team_wgr,
-                'EnemyWgr': avg_enemy_wgr
-            }
-            # Используем захваченный arena_id из closure (не от player, т.к. он может быть уже недоступен)
-            if current_arena_id:
-                self.save_battle_context(current_arena_id, context_update)
-                log("Saved WinChance/WGR context for arena {}".format(current_arena_id))
-            else:
-                err("CRITICAL: Cannot save WinChance - no arena_id available!")
-            # ------------------------------------------------------
-            
-            log("Calculated Chance: {:.1f}%".format(chance))
-            log("Avg Team WGR: {:.0f}".format(avg_team_wgr))
-            log("Avg Enemy WGR: {:.0f}".format(avg_enemy_wgr))
+           
+            log("Win Chance: {:.1f}% | Team WGR: {:.0f} | Enemy WGR: {:.0f}".format(chance, avg_team_wgr, avg_enemy_wgr))
             
             display_text = "Win Chance: {:.1f}%\nTeam WGR: {:.0f} | Enemy WGR: {:.0f}".format(
                     chance, avg_team_wgr, avg_enemy_wgr)
  
             # Используем overlay вместо show_text
-            log("Attempting to display data...")
             if self.overlay:
-                log("Calling overlay.update_text()")
                 self.overlay.update_text(display_text)
-            else:
-                err("Overlay is None! Cannot display data")
-                log(display_text)
         
         # ВАЖНО: Вызываем fetch_stats здесь, а не в stop()!
-        log("Calling fetch_stats for {} account IDs...".format(len(all_ids)))
         self.stats_fetcher.fetch_stats(all_ids, on_stats_received)
 
     def request_battle_results(self, arena_id):
         """Request battle results from cache/server"""
-        log("Requesting battle results for arena {}".format(arena_id))
         
         # Валидация arena_id - должен быть разумным числом
         try:
@@ -535,7 +401,6 @@ class WinChanceMod(object):
         
         # Не запрашиваем если не в ангаре
         if self.current_space_id != 3:
-            log("Skipping request - not in hangar (space={})".format(self.current_space_id))
             return
         
         try:
@@ -562,122 +427,15 @@ class WinChanceMod(object):
             err("Error requesting battle results: {} - will retry later".format(e))
             import traceback
             err(traceback.format_exc())
-            
-    def read_battle_result_from_dat(self, arena_id):
-        """Читает результаты боя из .dat файла и сохраняет в JSON"""
-        try:
-            import os
-            import glob
-            
-            # Путь к папке с результатами боев
-            appdata = os.environ.get('APPDATA', '')
-            if not appdata:
-                err("APPDATA environment variable not found")
-                return None
-            
-            battle_results_dir = os.path.join(appdata, 'Wargaming.net', 'WorldOfTanks', 'battle_results')
-            
-            if not os.path.exists(battle_results_dir):
-                log("Battle results directory not found: {}".format(battle_results_dir))
-                return None
-            
-            log("Scanning battle results directory: {}".format(battle_results_dir))
-            
-            # Ищем все .dat файлы во всех подпапках
-            dat_files = []
-            subdirs_scanned = []
-            
-            for root, dirs, files in os.walk(battle_results_dir):
-                # Логируем найденные подпапки
-                if root != battle_results_dir:
-                    subdir_name = os.path.basename(root)
-                    subdirs_scanned.append(subdir_name)
-                    log("Scanning subfolder: {}".format(subdir_name))
-                
-                # Ищем .dat файлы в текущей папке
-                for file in files:
-                    if file.endswith('.dat'):
-                        full_path = os.path.join(root, file)
-                        dat_files.append(full_path)
-                        log("Found .dat file: {} in {}".format(file, os.path.basename(root)))
-            
-            log("Total subfolders scanned: {}".format(len(subdirs_scanned)))
-            log("Total .dat files found: {}".format(len(dat_files)))
-            
-            if not dat_files:
-                log("No .dat files found in {}".format(battle_results_dir))
-                return None
-            
-            # Пытаемся загрузить результаты используя BattleResultsCache
-            try:
-                from BattleReplay import BattleResultsCache
-                
-                for dat_file in dat_files:
-                    try:
-                        # Читаем файл
-                        with open(dat_file, 'rb') as f:
-                            data = f.read()
-                        
-                        if not data:
-                            continue
-                        
-                        # Используем BattleResultsCache для конвертации
-                        cache = BattleResultsCache()
-                        full_results = cache.convertToFullForm(data)
-                        
-                        if not full_results:
-                            continue
-                        
-                        # Проверяем, соответствует ли arena_id
-                        file_arena_id = full_results.get('arenaUniqueID')
-                        if file_arena_id == arena_id:
-                            log("Found matching battle result in {}".format(os.path.basename(dat_file)))
-                            
-                            # Сохраняем в JSON
-                            self.save_battle_result_json(arena_id, full_results)
-                            return full_results
-                    
-                    except Exception as e:
-                        debug("Error reading {}: {}".format(os.path.basename(dat_file), e))
-                        continue
-                
-                log("No matching .dat file found for arena {}".format(arena_id))
-                return None
-                
-            except ImportError:
-                err("BattleResultsCache import failed")
-                return None
-            
-        except Exception as e:
-            err("Error in read_battle_result_from_dat: {}".format(e))
-            import traceback
-            err(traceback.format_exc())
-            return None
-    
-    def save_battle_result_json(self, arena_id, results):
-        """Сохраняет результаты боя в JSON файл"""
-        try:
-            save_dir = os.path.abspath('./mods/configs/mod_winchance/battle_results_backup/')
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            
-            file_path = os.path.join(save_dir, '{}.json'.format(arena_id))
-            
-            with open(file_path, 'w') as f:
-                json.dump(results, f, indent=2)
-            
-            log("Saved battle results to {}".format(file_path))
-        except Exception as e:
-            err("Error saving battle results JSON: {}".format(e))
 
     def save_raw_battle_results(self, arena_id, results):
         """Сохраняет сырые результаты боя из callback в JSON для анализа"""
         try:
-            save_dir = os.path.abspath('./mods/configs/mod_winchance/raw_battle_results/')
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+        #    save_dir = os.path.abspath('./mods/configs/mod_winchance/raw_battle_results/')
+        #    if not os.path.exists(save_dir):
+        #        os.makedirs(save_dir)
             
-            file_path = os.path.join(save_dir, '{}.json'.format(arena_id))
+        #    file_path = os.path.join(save_dir, '{}.json'.format(arena_id))
             
             # Конвертируем данные в JSON-совместимый формат
             # (некоторые значения могут быть не сериализуемы)
@@ -712,10 +470,8 @@ class WinChanceMod(object):
             
             serializable_results = make_serializable(results)
             
-            with open(file_path, 'w') as f:
-                json.dump(serializable_results, f, indent=2, ensure_ascii=False)
-            
-            log("Saved raw battle results to {}".format(file_path))
+        #    with open(file_path, 'w') as f:
+        #        json.dump(serializable_results, f, indent=2, ensure_ascii=False)
             
             # Отправляем сырые данные на API
             if self.api_client:
@@ -732,7 +488,6 @@ class WinChanceMod(object):
                         avatar_data = personal.get('avatar', {})
                         if avatar_data and 'accountDBID' in avatar_data:
                             account_id = avatar_data.get('accountDBID', 0)
-                            log("Got account_id from personal.avatar: {}".format(account_id))
                         
                         # 2. Пробуем из первого элемента personal (vehicle_cd -> data -> avatar)
                         if not account_id:
@@ -740,7 +495,6 @@ class WinChanceMod(object):
                                 if isinstance(data, dict) and 'avatar' in data:
                                     account_id = data['avatar'].get('accountDBID', 0)
                                     if account_id:
-                                        log("Got account_id from personal[{}].avatar: {}".format(key, account_id))
                                         break
                     
                     # 3. Fallback - из BigWorld.player()
@@ -748,12 +502,10 @@ class WinChanceMod(object):
                         player_info = self.api_client.get_player_info()
                         if player_info:
                             account_id = player_info.get('account_id', 0)
-                            log("Got account_id from BigWorld.player: {}".format(account_id))
                     
                     # 4. Fallback - из сохранённого api_account_id в клиенте
                     if not account_id and self.api_client.api_account_id:
                         account_id = self.api_client.api_account_id
-                        log("Got account_id from api_client.api_account_id: {}".format(account_id))
                     
                     if not account_id:
                         err("WARNING: Could not get account_id from any source!")
@@ -821,7 +573,7 @@ class WinChanceMod(object):
     def on_hangar_battle_results(self, responseCode, results):
         """Process battle results (from cache or event)"""
         try:
-            log("Processing battle results...")
+            log("Processing raw battle results...")
             
             if not results:
                 return
@@ -830,224 +582,7 @@ class WinChanceMod(object):
             arena_id = results.get('arenaUniqueID')
             self.save_raw_battle_results(arena_id, results)
 
-            common = results.get('common', {})
-            personal = results.get('personal', {})
-            players = results.get('players', {})
-            vehicles = results.get('vehicles', {})
-            
-            arena_id = results.get('arenaUniqueID')
-            winner_team = common.get('winnerTeam', 0)
-            duration = common.get('duration', 0)
-            arena_create_time = common.get('arenaCreateTime', 0)
-            arena_type_id = common.get('arenaTypeID', 0)
-            bonus_type = common.get('bonusType', 0)
-            
-            # Load preserved context (WinChance, WGR, Tank Info from battle start)
-            context_data = self.load_battle_context(arena_id)
-            
-            log("Loaded context for arena {}: {}".format(arena_id, context_data.keys()))
 
-            # Map Name extraction
-            map_name = context_data.get('MapName', 'Unknown')
-            # Fallback if not in context
-            if map_name == 'Unknown' or not map_name:
-                try:
-                    if arena_type_id in ArenaType.g_cache:
-                        at = ArenaType.g_cache[arena_type_id]
-                        # Try exact same key as in battle
-                        map_name = i18n.makeString('#arenas:%s/name' % at.geometryName)
-                        if map_name.startswith('#arenas:'):
-                             map_name = at.geometryName # Fallback to technical name
-                except: pass
-
-            # Battle Time
-            try:
-                if arena_create_time > 0:
-                    end_ts = arena_create_time + duration
-                    battle_time = datetime.datetime.fromtimestamp(end_ts).strftime('%Y-%m-%dT%H:%M:%S')
-                else:
-                     battle_time = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-            except:
-                battle_time = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-
-
-            # Player Personal Data
-            personal_data = {}
-            vehicle_cd = 0
-            if personal:
-                try:
-                    vehicle_cd, personal_data = personal.items()[0]
-                except: pass
-            
-            player_team = 1
-            if 'avatar' in personal_data:
-                 player_team = personal_data['avatar']['team']
-            elif 'avatar' in personal:
-                 player_team = personal['avatar']['team']
-            
-            if winner_team == 0:
-                battle_result = "draw"
-            elif winner_team == player_team:
-                battle_result = "win"
-            else:
-                battle_result = "lose"
-
-            # Parse Vehicle Info
-            # Priority: Context > Derived from Result
-            tank_info = {
-                'id': context_data.get('TankId', 0),
-                'name': context_data.get('TankName', 'Unknown'),
-                'tier': context_data.get('TankTier', 0),
-                'type': context_data.get('TankType', 'unknown'),
-                'nation': context_data.get('TankNation', 'unknown')
-            }
-            
-            # Formatting tank name to just "ELC EVEN 90" instead of "france:F97_ELC_EVEN_90" if possible
-            # Context usually saves localized name if available, but let's check.
-            # If context is missing/empty, derive from vehicle_cd
-            if not tank_info['id'] and vehicle_cd:
-                tank_info['id'] = vehicle_cd
-                try:
-                    vt = vehiclesWG.getVehicleType(vehicle_cd)
-                    # Используем техническое имя вместо локализованного
-                    tank_info['name'] = vt.name
-                    tank_info['tier'] = vt.level
-                except: pass
-
-
-            # Extract Stats
-            damage_dealt = personal_data.get('damageDealt', 0)
-            damage_assisted = personal_data.get('damageAssistedRadio', 0) + personal_data.get('damageAssistedTrack', 0) + personal_data.get('damageAssistedStun', 0)
-            damage_blocked = personal_data.get('damageBlockedByArmor', 0)
-            kills = personal_data.get('kills', 0)
-            spotted = personal_data.get('spotted', 0)
-            xp = personal_data.get('originalXP', 0) 
-            credits_ = personal_data.get('originalCredits', 0)
-            shots = personal_data.get('shots', 0)
-            hits = personal_data.get('directEnemyHits', 0)
-            piercings = personal_data.get('piercingEnemyHits', 0)
-
-            # WinChance and WGR from context
-            win_chance = context_data.get('WinChance', 0.0)
-            ally_wgr = context_data.get('AllyWgr', 0.0)
-            enemy_wgr = context_data.get('EnemyWgr', 0.0)
-            
-            # Предупреждение если данные WinChance отсутствуют
-            if win_chance == 0.0 and ally_wgr == 0.0 and enemy_wgr == 0.0:
-                err("WARNING: WinChance/WGR data missing for arena {}! Context keys: {}".format(
-                    arena_id, list(context_data.keys())))
-                err("This likely means the API stats request didn't complete before battle ended.")
-                # НЕ используем self.win_chance как fallback - эти значения могут быть от ДРУГОГО боя!
-                # Лучше отправить 0 чем неправильные данные
-
-            log("Result: {} Map: {} Tank: {} DMG: {} Chance: {:.1f}".format(
-                battle_result, map_name, tank_info['name'], damage_dealt, win_chance))
-            
-            # Сериализуем результаты боя для DetailedStats (как объект, не строка)
-            serializable_results = {}
-            try:
-                def make_serializable(obj, is_key=False):
-                    if isinstance(obj, dict):
-                        return {make_serializable(k, is_key=True): make_serializable(v) for k, v in obj.items()}
-                    elif is_key:
-                        # Ключи словаря должны быть строками
-                        if isinstance(obj, (list, tuple)):
-                            return str(obj)
-                        return str(obj)
-                    elif isinstance(obj, (list, tuple)):
-                        return [make_serializable(item) for item in obj]
-                    elif isinstance(obj, (int, float, bool, type(None))):
-                        return obj
-                    elif isinstance(obj, bytes):
-                        # Python 2: str это bytes, нужно декодировать
-                        try:
-                            return obj.decode('utf-8')
-                        except UnicodeDecodeError:
-                            try:
-                                return obj.decode('cp1251')
-                            except UnicodeDecodeError:
-                                return obj.decode('latin-1')  # fallback, всегда работает
-                    elif isinstance(obj, (frozenset, set)):
-                        return [make_serializable(item) for item in obj]
-                    else:
-                        # Для unicode и прочих типов
-                        try:
-                            return obj if isinstance(obj, basestring) else str(obj).decode('utf-8')
-                        except:
-                            return repr(obj)
-                
-                serializable_results = make_serializable(results)
-                # Сериализуем в строку для DetailedStatsJson
-                detailed_stats_json = json.dumps(serializable_results, ensure_ascii=True)
-                log("DetailedStats prepared, keys: {}, size: {} bytes".format(
-                    list(serializable_results.keys()) if serializable_results else [], len(detailed_stats_json)))
-            except Exception as e:
-                err("Error serializing detailed stats: {}".format(e))
-                import traceback
-                err(traceback.format_exc())
-                serializable_results = {}
-                detailed_stats_json = None
-            
-            # Определяем победу/поражение/ничью
-            if winner_team == 0:
-                # winner_team = 0 означает ничью
-                result_str = 'draw'
-            elif winner_team == player_team:
-                # Наша команда победила
-                result_str = 'win'
-            else:
-                # Вражеская команда победила
-                result_str = 'lose'
-            dto = {
-                'ArenaUniqueId': str(arena_id),
-                'BattleTime': battle_time,
-                'Duration': duration,
-                'MapName': map_name,
-                'BattleType': bonus_type,
-                'Team': player_team,
-                'WinnerTeam': winner_team,
-                'Result': result_str,
-                'DamageDealt': damage_dealt,
-                'DamageAssisted': damage_assisted,
-                'DamageBlocked': damage_blocked,
-                'Kills': kills,
-                'Spotted': spotted,
-                'Experience': xp,
-                'Credits': credits_,
-                'Shots': shots,
-                'Hits': hits,
-                'Penetrations': piercings,
-                'WinChance': win_chance,
-                'AllyWgr': ally_wgr,
-                'EnemyWgr': enemy_wgr,
-                'Tank': {
-                    'TankId': tank_info['id'],
-                    'Name': tank_info['name'],
-                    'Tier': tank_info['tier'],
-                    'Type': tank_info['type'],
-                    'Nation': tank_info['nation']
-                },
-                'DetailedStatsJson': detailed_stats_json,
-                'DetailedStats': serializable_results
-            }
-            
-            # Сохраняем отправляемый DTO для отладки
-            try:
-                dto_save_dir = os.path.abspath('./mods/configs/mod_winchance/sent_dto/')
-                if not os.path.exists(dto_save_dir):
-                    os.makedirs(dto_save_dir)
-                dto_file = os.path.join(dto_save_dir, '{}.json'.format(arena_id))
-                with open(dto_file, 'w') as f:
-                    json.dump(dto, f, indent=2, ensure_ascii=True)
-                log("Saved DTO to {}".format(dto_file))
-            except Exception as e:
-                err("Error saving DTO: {}".format(e))
-            
-            if self.api_client:
-                success = self.api_client.send_battle_result(dto)
-                if success:
-                    # Cleanup context after successful send
-                    self.delete_battle_context(arena_id)
                 
         except Exception as e:
             err("Error in on_hangar_battle_results: {}".format(e))
@@ -1132,13 +667,9 @@ class DraggableWinChanceWindow(object):
                     
                     # Валидация позиции - должна быть в пределах экрана
                     if self.posX < 0 or self.posX > 1.0:
-                        log("Invalid posX {}, resetting to default".format(self.posX))
                         self.posX = 0.75
                     if self.posY < 0 or self.posY > 1.0:
-                        log("Invalid posY {}, resetting to default".format(self.posY))
                         self.posY = 0.05
-                    
-                    log("Config loaded: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
         except Exception as e:
             debug("Error loading config: {}".format(e))
     
@@ -1158,15 +689,12 @@ class DraggableWinChanceWindow(object):
             
             with open(config_path, 'w') as f:
                 json.dump(config, f, indent=2)
-            
-            log("Config saved: position ({:.3f}, {:.3f})".format(self.posX, self.posY))
         except Exception as e:
             debug("Error saving config: {}".format(e))
     
     def create(self):
         """Cоздает окно"""
         try:
-            log("Window created (GUI-based)")
             return True
         except Exception as e:
             err("Error creating window: {}".format(e))
@@ -1175,7 +703,6 @@ class DraggableWinChanceWindow(object):
     def update_text(self, text):
         """Обновляет текст окна"""
         try:
-            log("Updating overlay text: {}".format(text))
             self.createWindow(text)
         except Exception as e:
             err("Update text error: {}".format(e))
@@ -1193,7 +720,6 @@ class DraggableWinChanceWindow(object):
             lines = message.split('\n')
             
             if len(lines) < 2:
-                log("Invalid message format: {}".format(message))
                 return
             
             # === Win Chance (первая строка) ===
@@ -1206,9 +732,7 @@ class DraggableWinChanceWindow(object):
                 if len(parts) >= 2:
                     percent_part = parts[1].split('%')[0].strip()
                     chance_value = float(percent_part)
-                    log("Parsed chance value: {}%".format(chance_value))
                 else:
-                    log("Cannot parse chance from: {}".format(chance_line))
                     chance_value = 50.0
             except Exception as e:
                 err("Error parsing chance value from '{}': {}".format(chance_line, e))
@@ -1243,7 +767,6 @@ class DraggableWinChanceWindow(object):
                 self.components.append(('text', wgrText, 0.025))
             
             self.startMouseHandler()
-            log("Window created successfully")
             
         except Exception as e:
             err("Error creating window: {}".format(e))
@@ -1333,7 +856,6 @@ class DraggableWinChanceWindow(object):
         """Уничтожает окно"""
         try:
             self.destroyWindow()
-            log("Window destroyed")
         except Exception as e:
             err("Error destroying window: {}".format(e))
     

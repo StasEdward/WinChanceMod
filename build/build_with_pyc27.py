@@ -9,7 +9,7 @@ import py_compile
 import shutil
 
 # Configuration
-MOD_VERSION = "1.1.0"
+MOD_VERSION = "1.2.0"
 SRC_DIR = "../src"
 OUTPUT_DIR = "../output"
 GAME_MODS_DIR = "d:\\Games\\World_of_Tanks_EU\\mods\\2.1.0.2"
